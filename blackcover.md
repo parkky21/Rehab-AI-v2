@@ -63,7 +63,7 @@ The project explored three deep learning architectures for sequence regression:
 ### 3.5 Experimental Results & Performance Analysis
 The following chart provides a comprehensive comparative analysis of the trained models (LSTM, TCN, Transformer) against the rule-based oracle baseline.
 
-![Model Training and Performance Comparison](file:///Users/parthkale/Projects/rehab-ai-server-v2/docs/assets/comparison.png)
+![Model Training and Performance Comparison](docs/assets/comparison.png)
 
 #### Analysis of Results:
 *   **Validation Loss Convergence**: As shown in the "Validation Loss During Training" subplot, all models exhibit healthy convergence with the Huber loss. The **LSTM** (blue) demonstrates the most stable plateauing, suggesting it captures the temporal dependencies of rehab exercises with the highest consistency.
