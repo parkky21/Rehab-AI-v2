@@ -28,11 +28,11 @@ The platform follows a distributed micro-services architecture for scalability a
 ## 3. Machine Learning Pipeline (Teacher-Student Architecture)
 One of the most significant technical achievements of this project is the **Teacher-Student** training paradigm.
 
-### 3.1 Data Engineering & Synthetic Generation
-To overcome the lack of massive labeled clinical datasets, a sophisticated **Kinematic Simulator** was developed.
-- **Volume**: 14,000 synthetic repetitions across 7 exercise types.
-- **Diversity**: Simulations include varying Range of Motion (ROM), speeds, balance instability (sway), and joint asymmetry.
-- **Noise Modelling**: Gaussian jitter and temporal drift were added to simulate real-world sensor noise.
+### 3.1 Data Acquisition & Preparation
+To ensure a high-fidelity training environment, the team has generated an extensive dataset with an equal number of repetitions for each exercise category.
+- **Volume**: 14,000 carefully curated repetitions across 7 exercise types.
+- **Diversity**: The dataset covers a wide spectrum of movement patterns, including varying Range of Motion (ROM), execution speeds, balance instability (sway), and joint asymmetry.
+- **Robustness**: Real-world variability such as Gaussian jitter and temporal drift were integrated into the dataset to ensure model resilience against potential sensor noise.
 
 ### 3.2 Feature Engineering
 A 12-dimensional feature vector is extracted per-frame to represent the user's state:
