@@ -1,0 +1,31 @@
+# IDE / System
+.DS_Store
+.vscode/
+.idea/
+
+# python-server
+python-server/__pycache__/
+python-server/*.py[oc]
+python-server/build/
+python-server/dist/
+python-server/wheels/
+python-server/*.egg-info
+python-server/.venv/
+python-server/.env
+python-server/session_*.json
+
+# web-client
+web-client/node_modules/
+web-client/dist/
+web-client/dist-ssr/
+web-client/*.local
+web-client/.env
+web-client/.env.*
+web-client/.vercel/
+web-client/.output/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
