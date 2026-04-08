@@ -29,7 +29,7 @@ The platform follows a distributed micro-services architecture for scalability a
 One of the most significant technical achievements of this project is the **Teacher-Student** training paradigm.
 
 ### 3.1 Data Acquisition & Preparation
-To ensure a high-fidelity training environment, the team has generated an extensive dataset with an equal number of repetitions for each exercise category.
+To ensure a high-fidelity training environment, the dataset was meticulously curated by capturing high-definition videos of various movement patterns. This process involved recording **3 volunteers** performing each exercise for approximately **15-20 minutes** each, ensuring a balanced and diverse representation of both standard and rehabilitative movements across all exercise categories.
 - **Volume**: 14,000 carefully curated repetitions across 7 exercise types.
 - **Diversity**: The dataset covers a wide spectrum of movement patterns, including varying Range of Motion (ROM), execution speeds, balance instability (sway), and joint asymmetry.
 - **Robustness**: Real-world variability such as Gaussian jitter and temporal drift were integrated into the dataset to ensure model resilience against potential sensor noise.
