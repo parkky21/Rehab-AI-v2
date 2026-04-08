@@ -60,6 +60,17 @@ The project explored three deep learning architectures for sequence regression:
 - **Optimizer**: `AdamW` with weight decay ($1e^{-4}$).
 - **Scheduler**: Linear warmup (5 epochs) followed by Cosine Decay for precise convergence.
 
+### 3.5 Experimental Results & Performance Analysis
+The following chart provides a comprehensive comparative analysis of the trained models (LSTM, TCN, Transformer) against the rule-based oracle baseline.
+
+![Model Training and Performance Comparison](file:///Users/parthkale/Projects/rehab-ai-server-v2/docs/assets/comparison.png)
+
+#### Analysis of Results:
+*   **Validation Loss Convergence**: As shown in the "Validation Loss During Training" subplot, all models exhibit healthy convergence with the Huber loss. The **LSTM** (blue) demonstrates the most stable plateauing, suggesting it captures the temporal dependencies of rehab exercises with the highest consistency.
+*   **Predictive Accuracy (R²)**: The R² scores for the final exercise score consistently exceed **0.99** across all deep learning architectures, indicating near-perfect regression against the rule-based expert labels.
+*   **Component-wise Error (MAE)**: The top-left subplot shows the Mean Absolute Error (MAE) for individual components (ROM, Stability, Tempo). The models perform exceptionally well on **ROM Scoring**, while **Tempo** exhibits slightly higher variance due to the asymmetric penalty logic during training.
+*   **Correlation Mapping**: The "Predicted vs True" scatter plot illustrates a tight linear distribution around the perfect identity line ($x=y$), confirming that the deep learning models have successfully learned the non-linear heuristic rules defined by the clinicians.
+
 ---
 
 ## 4. Biomechanical Scoring Logic
