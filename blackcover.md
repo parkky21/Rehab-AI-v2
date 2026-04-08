@@ -71,6 +71,21 @@ The following chart provides a comprehensive comparative analysis of the trained
 *   **Component-wise Error (MAE)**: The top-left subplot shows the Mean Absolute Error (MAE) for individual components (ROM, Stability, Tempo). The models perform exceptionally well on **ROM Scoring**, while **Tempo** exhibits slightly higher variance due to the asymmetric penalty logic during training.
 *   **Correlation Mapping**: The "Predicted vs True" scatter plot illustrates a tight linear distribution around the perfect identity line ($x=y$), confirming that the deep learning models have successfully learned the non-linear heuristic rules defined by the clinicians.
 
+### 3.6 Comparative Benchmarking Data
+The following table summarizes the quantitative performance metrics for each architecture evaluated on the hold-out test set (2,100 repetitions).
+
+| Model Architecture | MAE (Final Score) | RMSE (Final) | R² Score | MAE (All Components) |
+| :--- | :---: | :---: | :---: | :---: |
+| **LSTM** | **1.476** | 1.964 | 0.9848 | **1.593** |
+| **Transformer** | **1.389** | **1.882** | **0.9861** | 1.600 |
+| **TCN** | 4.756 | 5.252 | 0.8915 | 4.659 |
+
+#### Architecture Selection Justification:
+Based on the empirical data, the **Transformer** and **LSTM** architectures demonstrate superior performance in capturing the complex temporal dynamics of rehabilitative movements.
+*   **Transformer** achieved the highest overall accuracy ($R^2 = 0.9861$), benefitting from its self-attention mechanism to identify critical frames within a repetition.
+*   **LSTM** provided the most stable training curve and was selected for the production real-time environment due to its better balance between predictive power and computational overhead (latency).
+*   **TCN** showed significantly higher error rates in this specific 14,000-rep dataset, likely due to its fixed receptive field being less flexible than the recurrent or attention-based alternatives for variable-speed exercises.
+
 ---
 
 ## 4. Biomechanical Scoring Logic
