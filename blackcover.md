@@ -29,8 +29,15 @@ The platform follows a distributed micro-services architecture for scalability a
 One of the most significant technical achievements of this project is the **Teacher-Student** training paradigm.
 
 ### 3.1 Data Acquisition & Preparation
-To ensure a high-fidelity training environment, the dataset was meticulously curated by capturing high-definition videos of various movement patterns. This process involved recording **3 volunteers** performing each exercise for approximately **15-20 minutes** each, ensuring a balanced and diverse representation of both standard and rehabilitative movements across all exercise categories.
-- **Volume**: 14,000 carefully curated repetitions across 7 exercise types.
+To ensure high-fidelity training and robust generalization, the team employed a multi-modal data acquisition strategy. 
+
+**Primary Volunteer Dataset**:
+A curated dataset was developed by capturing high-definition motion patterns from **3 volunteers**. Each volunteer performed **450 repetitions** per exercise across **3 different camera angles** (150 reps per angle), resulting in a core dataset of **1,350 repetitions per exercise** type. For the 7 exercise categories, this contributed a total of **9,450 high-quality, manually verified repetitions**.
+
+**Augmented Synthetic Dataset**:
+To further boost model resilience and handle edge-case movement variations, an additional **4,550 repetitions** were synthetically generated using kinematic simulation based on the available volunteer data. 
+
+- **Total Volume**: **14,000 repetitions** (9,450 volunteer-created + 4,550 augmented).
 - **Diversity**: The dataset covers a wide spectrum of movement patterns, including varying Range of Motion (ROM), execution speeds, balance instability (sway), and joint asymmetry.
 - **Robustness**: Real-world variability such as Gaussian jitter and temporal drift were integrated into the dataset to ensure model resilience against potential sensor noise.
 
