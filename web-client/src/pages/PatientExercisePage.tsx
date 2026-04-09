@@ -224,7 +224,10 @@ export function PatientExercisePage() {
         }
 
         // Draw joints
-        for (const lm of landmarks) {
+        for (let i = 0; i < landmarks.length; i++) {
+          if (i < 11) continue; // Skip facial landmarks (eyes, nose, mouth)
+          
+          const lm = landmarks[i];
           if ((lm.visibility ?? 1) < 0.35) continue;
           const px = lm.x * canvas.width;
           const py = lm.y * canvas.height;
