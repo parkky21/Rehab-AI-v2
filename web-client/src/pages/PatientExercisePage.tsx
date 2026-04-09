@@ -325,10 +325,10 @@ export function PatientExercisePage() {
       drawOverlay(landmarks.slice(0, 33));
 
       // Gesture Logic
-      if (Date.now() > gestureCooldownRef.current) {
-        const handsTogether = areHandsTogether(landmarks);
-        
-        if (handsTogether) {
+      const handsTogether = areHandsTogether(landmarks);
+      
+      if (handsTogether) {
+        if (Date.now() > gestureCooldownRef.current) {
           if (!gestureTimerRef.current) gestureTimerRef.current = Date.now();
           const elapsed = Date.now() - gestureTimerRef.current;
           
@@ -339,11 +339,16 @@ export function PatientExercisePage() {
             } else {
               stopWsSession();
             }
-            gestureCooldownRef.current = Date.now() + 3000;
+            // Require user to separate hands to trigger again
+            gestureCooldownRef.current = Infinity;
             gestureTimerRef.current = null;
           }
-        } else {
-          gestureTimerRef.current = null;
+        }
+      } else {
+        gestureTimerRef.current = null;
+        if (gestureCooldownRef.current === Infinity) {
+           // Provide a short 1 second delay after they separate their hands
+           gestureCooldownRef.current = Date.now() + 1000;
         }
       }
 
