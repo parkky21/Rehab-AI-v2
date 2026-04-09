@@ -24,6 +24,7 @@ class HeelRaises(ExerciseBase):
         vertical_dist = toe.y - ankle.y
         proxy_angle = vertical_dist * 100
         self.rom_tracker.update(proxy_angle)
+        self.record_ml_frame(proxy_angle, landmarks)
         self.rep_completed = False
 
         if vertical_dist < 0.02:

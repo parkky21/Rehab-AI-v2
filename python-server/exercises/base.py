@@ -93,36 +93,64 @@ class ExerciseBase:
         lstm.record_frame(angle=angle, hip_x=hip_x, rep_progress=rep_prog)
         trans.record_frame(angle=angle, hip_x=hip_x, rep_progress=rep_prog)
 
+    # Ensemble weights: LSTM (stable, low latency) + Transformer (highest R²) + Rule-based (clinical anchor)
+    ENSEMBLE_W_LSTM = 0.45
+    ENSEMBLE_W_TRANSFORMER = 0.20
+    ENSEMBLE_W_RULES = 0.35
+
     def _on_rep_complete(self, sway: float = 0.0):
         """
         Called internally when a rep completes.
-        Computes scores for the completed rep.
+        Computes scores via an ensemble of rule-based + LSTM + Transformer.
+        The final user-facing scores are a weighted blend for robustness.
         """
         rom = self.rom_tracker.complete_rep()
         rep_time = self.tempo_tracker.complete_rep()
 
-        self.last_rep_scores = self.scorer.score_rep(
+        # 1) Rule-based scores (always available, serves as clinical anchor)
+        rule_scores = self.scorer.score_rep(
             user_rom=rom,
             sway=sway,
             rep_time=rep_time,
         )
-        self.last_rep_scores["rom_value"] = round(rom, 2)
-        self.last_rep_scores["rep_time"] = round(rep_time, 3)
-        
-        # Score ML models
+        rule_scores["rom_value"] = round(rom, 2)
+        rule_scores["rep_time"] = round(rep_time, 3)
+
+        self.last_rep_scores = rule_scores
+
+        # 2) ML model scores (LSTM + Transformer ensemble)
         lstm, trans = self._get_or_create_ml_scorers()
         if lstm and trans:
             lstm_scores = lstm.score_rep(user_rom=rom, sway=sway, rep_time=rep_time)
             trans_scores = trans.score_rep(user_rom=rom, sway=sway, rep_time=rep_time)
+
+            # Store individual model outputs for analytics/debugging
+            self.last_rep_scores["rule_final"] = rule_scores["final_score"]
             self.last_rep_scores["lstm_final"] = lstm_scores["final_score"]
             self.last_rep_scores["transformer_final"] = trans_scores["final_score"]
+
+            # 3) Weighted ensemble blend
+            w_l, w_t, w_r = self.ENSEMBLE_W_LSTM, self.ENSEMBLE_W_TRANSFORMER, self.ENSEMBLE_W_RULES
+            for key in ("rom_score", "stability_score", "tempo_score", "final_score"):
+                blended = (
+                    w_l * lstm_scores[key]
+                    + w_t * trans_scores[key]
+                    + w_r * rule_scores[key]
+                )
+                self.last_rep_scores[key] = round(blended, 1)
 
         self.rep_completed = True
 
     def _on_rep_start(self):
-        """Called when a new rep movement begins."""
+        """Called when a new rep movement begins. Resets ML frame buffers."""
         if self.tempo_tracker.rep_start_time is None:
             self.tempo_tracker.start_rep()
+            # Reset ML buffers so each rep gets a clean frame sequence
+            lstm, trans = self._get_or_create_ml_scorers()
+            if lstm:
+                lstm.reset_buffer()
+            if trans:
+                trans.reset_buffer()
 
     def process(self, landmarks):
         """

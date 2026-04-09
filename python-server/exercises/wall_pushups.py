@@ -24,6 +24,7 @@ class WallPushups(ExerciseBase):
 
         angle = calculate_angle_2d(shoulder, elbow, wrist)
         self.rom_tracker.update(angle)
+        self.record_ml_frame(angle, landmarks)
         self.rep_completed = False
 
         if angle > 150:

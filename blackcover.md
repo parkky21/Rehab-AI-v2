@@ -110,11 +110,18 @@ Corrective feedback is generated per-frame using a prioritized heuristic engine:
 - **Priority 2 (Execution)**: `poor_depth` (ROM check) and `too_fast` (Tempo check).
 - **Priority 3 (Balance)**: `asymmetry` detection between left and right limb trajectories.
 
-### 4.2 Machine Learning Scorer (MLRepScorer)
-Upon rep completion, the entire sequence of 12D features is batch-processed by the trained LSTM/Transformer model.
-- **ROM (Range of Motion)**: Predicted based on the angular trajectory curve.
-- **Stability**: Derived from the standard deviation of hip horizontal displacement (sway).
-- **Tempo**: Predicted by analyzing the velocity and acceleration patterns throughout the rep.
+### 4.2 Ensemble Scoring Architecture (MLRepScorer)
+During each rep, per-frame features (angle, hip_x, velocity) are streamed into both the LSTM and Transformer models via `record_ml_frame()`. Upon rep completion, all three scoring engines produce independent predictions:
+
+| Scorer | Weight | Rationale |
+| :--- | :---: | :--- |
+| **LSTM** | 0.45 | Most stable temporal modelling, lowest latency |
+| **Transformer** | 0.20 | Highest R² ($0.9861$), best at identifying critical frames |
+| **Rule-Based** | 0.35 | Clinical anchor — deterministic, interpretable fallback |
+
+$$Score_{final} = 0.45 \cdot S_{LSTM} + 0.20 \cdot S_{Transformer} + 0.35 \cdot S_{Rules}$$
+
+This weighted ensemble is applied independently to each component (ROM, Stability, Tempo, Final Score), producing a blended result that is more robust than any single model alone. All individual model outputs (`lstm_final`, `transformer_final`, `rule_final`) are also persisted to MongoDB for offline analytics and model comparison.
 
 ---
 

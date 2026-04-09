@@ -24,6 +24,7 @@ class LegRaises(ExerciseBase):
 
         angle = calculate_angle_2d(shoulder, hip, knee)
         self.rom_tracker.update(angle)
+        self.record_ml_frame(angle, landmarks)
         self.rep_completed = False
 
         if angle > 160:

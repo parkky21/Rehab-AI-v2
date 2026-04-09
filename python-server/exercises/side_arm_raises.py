@@ -24,6 +24,7 @@ class SideArmRaises(ExerciseBase):
 
         angle = calculate_angle_2d(hip, shoulder, wrist)
         self.rom_tracker.update(angle)
+        self.record_ml_frame(angle, landmarks)
         self.rep_completed = False
 
         if angle < 35:

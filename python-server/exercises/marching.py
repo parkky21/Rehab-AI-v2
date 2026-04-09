@@ -30,6 +30,7 @@ class Marching(ExerciseBase):
         l_lift = max(0, (l_hip.y + 0.05) - l_knee.y) * 100  # Lower threshold
         r_lift = max(0, (r_hip.y + 0.05) - r_knee.y) * 100
         self.rom_tracker.update(max(l_lift, r_lift))
+        self.record_ml_frame(max(l_lift, r_lift), landmarks)
 
         self.rep_completed = False
 
