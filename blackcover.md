@@ -23,6 +23,12 @@ The platform follows a distributed micro-services architecture for scalability a
 - **Vision Engine**: MediaPipe Pose Landmarker (WASM-based execution in-browser).
 - **UX**: Dashboard-driven interface for role-based access (Doctor vs. Patient).
 
+### 2.3 Real-time Processing & WebSocket Infrastructure
+The system employs a high-frequency WebSocket stream to facilitate real-time engagement:
+- **Streaming Flow**: The frontend transmits 33 MediaPipe pose landmarks (X, Y, Z, Visibility) at ~30 FPS to the `ws/session` endpoint.
+- **Stateful Runtime**: Each session initializes a `RealtimeSessionRuntime` that manages landmark smoothing (EMA), body sway tracking, and current exercise stage detection.
+- **Low-Latency Feedback**: Biomechanical corrections are prioritized and returned to the patient in <50ms, ensuring a responsive "AI Coach" experience.
+
 ---
 
 ## 3. Machine Learning Pipeline (Teacher-Student Architecture)
@@ -57,10 +63,10 @@ A 12-dimensional feature vector is extracted per-frame to represent the user's s
 12. **Padding Mask**: Boolean mask for variable-length sequence handling.
 
 ### 3.3 Model Comparison & Selection
-The project explored three deep learning architectures for sequence regression:
-- **LSTM (Long Short-Term Memory)**: Best for capturing long-range temporal dependencies in rehab movements. (Chosen for production).
-- **TCN (Temporal Convolutional Networks)**: High-speed parallel processing for short-term patterns.
-- **Transformer**: Self-attention mechanism for highly complex, non-linear movement analysis.
+The project explored three deep learning architectures for sequence regression, specifically trained to map 12D temporal features to clinical scores:
+- **LSTM (Long Short-Term Memory)**: Captures long-range temporal dependencies. Chosen for production due to superior stability and minimal latency overhead in real-time environments.
+- **Transformer**: Employs a self-attention mechanism to identify "critical frames" (e.g., peak flexion) that define rep quality.
+- **TCN (Temporal Convolutional Networks)**: Utilizes dilated causal convolutions to process movement sequences in parallel.
 
 ### 3.4 Training Recipe
 - **Loss Function**: `SmoothL1Loss` (Huber Loss) with $\beta=5.0$. This ensures the model is robust to outliers — common in shaky or incorrect patient movements.
@@ -95,22 +101,20 @@ Based on the empirical data, the **Transformer** and **LSTM** architectures demo
 
 ---
 
-## 4. Biomechanical Scoring Logic
-The scoring engine translates raw joint landmarks into clinical metrics using four pillars:
+## 4. Biomechanical Scoring & Rule Engine
+The system logic is partitioned into a hybrid engine:
 
-### 4.1 Range of Motion (ROM)
-Measures the maximum joint extension/flexion achieved compared to the therapeutic target.
-$$Score_{ROM} = \min\left(\frac{ROM_{achieved}}{ROM_{target}} \times 100, 100\right)$$
+### 4.1 Rule-Based Feedback Engine
+Corrective feedback is generated per-frame using a prioritized heuristic engine:
+- **Priority 1 (Form)**: `knee_valgus` (Knee collapse) and `forward_lean` (Torso tilt).
+- **Priority 2 (Execution)**: `poor_depth` (ROM check) and `too_fast` (Tempo check).
+- **Priority 3 (Balance)**: `asymmetry` detection between left and right limb trajectories.
 
-### 4.2 Stability (Sway)
-Analyzes horizontal hip displacement ($\sigma$ of hip\_x). Higher sway results in a stability penalty, critical for fall-risk assessment.
-
-### 4.3 Tempo
-Compares actual repetition time to the `ideal_rep_time`.
-- **Asymmetric Penalty**: Moving too **fast** is penalized 4x more harshly than moving too **slowly**, as fast movements often compromise form and safety in a rehab context.
-
-### 4.4 Asymmetry
-Calculates the difference between left and right limb performance to detect compensatory movements or muscular imbalances.
+### 4.2 Machine Learning Scorer (MLRepScorer)
+Upon rep completion, the entire sequence of 12D features is batch-processed by the trained LSTM/Transformer model.
+- **ROM (Range of Motion)**: Predicted based on the angular trajectory curve.
+- **Stability**: Derived from the standard deviation of hip horizontal displacement (sway).
+- **Tempo**: Predicted by analyzing the velocity and acceleration patterns throughout the rep.
 
 ---
 
