@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { PoseLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
+import { PoseLandmarker, FilesetResolver, NormalizedLandmark } from "@mediapipe/tasks-vision";
 
 import { getPatientAssignments } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -27,6 +27,7 @@ export function PatientExercisePage() {
   const [stage, setStage] = useState<string>("-");
   const [sway, setSway] = useState(0);
   const [running, setRunning] = useState(false);
+  const [cameraActive, setCameraActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Score state
@@ -40,6 +41,9 @@ export function PatientExercisePage() {
   // Session summary
   const [sessionEnded, setSessionEnded] = useState(false);
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
+
+  const gestureTimerRef = useRef<number | null>(null);
+  const gestureCooldownRef = useRef<number>(0);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -90,12 +94,31 @@ export function PatientExercisePage() {
     return detector;
   }
 
-  async function startSession() {
+  async function startCamera() {
     if (!accessToken || !selectedAssignment || !videoRef.current) return;
 
     setError(null);
-    setRunning(true);
     setSessionEnded(false);
+    setCameraActive(true);
+    setFeedback("Camera is ready. Bring your hands together to START tracking.");
+    
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      videoRef.current.srcObject = stream;
+      await videoRef.current.play();
+
+      await initDetector();
+      startLoop();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not open camera");
+      setCameraActive(false);
+    }
+  }
+
+  function startWsSession() {
+    if (!accessToken || !selectedAssignment) return;
+
+    setRunning(true);
     setRepCount(0);
     setTargetReps(selectedAssignment.target_reps);
     setStage("-");
@@ -107,16 +130,11 @@ export function PatientExercisePage() {
     setSessionAvg(0);
     setRepHistory([]);
     setFeedbackRules([]);
-    setFeedback("Initializing camera...");
+    setFeedback("Connecting to analysis server...");
     setWsStatus("Connecting");
     setSessionStartTime(Date.now());
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-      videoRef.current.srcObject = stream;
-      await videoRef.current.play();
-
-      const detector = await initDetector();
       const socket = new WebSocket(
         `${WS_BASE}/ws/session?token=${encodeURIComponent(accessToken)}&assignment_id=${encodeURIComponent(
           selectedAssignment.id
@@ -175,7 +193,6 @@ export function PatientExercisePage() {
             setSessionAvg(re.session_avg);
             setRepHistory((prev) => [...prev, re]);
 
-            // Auto-scroll rep history
             setTimeout(() => {
               repHistoryRef.current?.scrollTo({
                 left: repHistoryRef.current.scrollWidth,
@@ -185,108 +202,198 @@ export function PatientExercisePage() {
           }
         }
       };
-
-      const drawOverlay = (landmarks: Array<{ x: number; y: number; visibility?: number }>) => {
-        const canvas = canvasRef.current;
-        const video = videoRef.current;
-        if (!canvas || !video) return;
-
-        if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
-          canvas.width = video.videoWidth;
-          canvas.height = video.videoHeight;
-        }
-
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-        // Draw connections
-        ctx.lineWidth = 3;
-        for (const [start, end] of POSE_CONNECTIONS) {
-          const a = landmarks[start];
-          const b = landmarks[end];
-          if (!a || !b) continue;
-          if ((a.visibility ?? 1) < 0.35 || (b.visibility ?? 1) < 0.35) continue;
-
-          const gradient = ctx.createLinearGradient(
-            a.x * canvas.width, a.y * canvas.height,
-            b.x * canvas.width, b.y * canvas.height
-          );
-          gradient.addColorStop(0, "rgba(0, 212, 255, 0.8)");
-          gradient.addColorStop(1, "rgba(139, 92, 246, 0.8)");
-          ctx.strokeStyle = gradient;
-
-          ctx.beginPath();
-          ctx.moveTo(a.x * canvas.width, a.y * canvas.height);
-          ctx.lineTo(b.x * canvas.width, b.y * canvas.height);
-          ctx.stroke();
-        }
-
-        // Draw joints
-        for (let i = 0; i < landmarks.length; i++) {
-          if (i < 11) continue; // Skip facial landmarks (eyes, nose, mouth)
-          
-          const lm = landmarks[i];
-          if ((lm.visibility ?? 1) < 0.35) continue;
-          const px = lm.x * canvas.width;
-          const py = lm.y * canvas.height;
-
-          ctx.beginPath();
-          ctx.arc(px, py, 5, 0, Math.PI * 2);
-          ctx.fillStyle = "rgba(0, 212, 255, 0.9)";
-          ctx.fill();
-
-          ctx.beginPath();
-          ctx.arc(px, py, 7, 0, Math.PI * 2);
-          ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
-          ctx.lineWidth = 1.5;
-          ctx.stroke();
-        }
-      };
-
-      const loop = () => {
-        const video = videoRef.current;
-        if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-          rafRef.current = requestAnimationFrame(loop);
-          return;
-        }
-
-        const result = detector.detectForVideo(video, performance.now());
-        const landmarks = result.landmarks[0];
-        if (landmarks && landmarks.length >= 33) {
-          drawOverlay(landmarks.slice(0, 33));
-          if (wsRef.current?.readyState === WebSocket.OPEN) {
-            wsRef.current.send(
-              JSON.stringify({
-                type: "landmark_frame",
-                timestamp_ms: Date.now(),
-                landmarks: landmarks.slice(0, 33).map((lm) => ({
-                  x: lm.x,
-                  y: lm.y,
-                  z: lm.z,
-                  visibility: lm.visibility ?? 1,
-                })),
-              })
-            );
-          }
-        }
-
-        rafRef.current = requestAnimationFrame(loop);
-      };
-
-      rafRef.current = requestAnimationFrame(loop);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not start session");
+      wsRef.current = null;
       setRunning(false);
     }
   }
+
+  const drawOverlay = (landmarks: Array<{ x: number; y: number; visibility?: number }>) => {
+    const canvas = canvasRef.current;
+    const video = videoRef.current;
+    if (!canvas || !video) return;
+
+    if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+    }
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    ctx.lineWidth = 3;
+    for (const [start, end] of POSE_CONNECTIONS) {
+      const a = landmarks[start];
+      const b = landmarks[end];
+      if (!a || !b) continue;
+      if ((a.visibility ?? 1) < 0.35 || (b.visibility ?? 1) < 0.35) continue;
+
+      const gradient = ctx.createLinearGradient(
+        a.x * canvas.width, a.y * canvas.height,
+        b.x * canvas.width, b.y * canvas.height
+      );
+      gradient.addColorStop(0, "rgba(0, 212, 255, 0.8)");
+      gradient.addColorStop(1, "rgba(139, 92, 246, 0.8)");
+      ctx.strokeStyle = gradient;
+
+      ctx.beginPath();
+      ctx.moveTo(a.x * canvas.width, a.y * canvas.height);
+      ctx.lineTo(b.x * canvas.width, b.y * canvas.height);
+      ctx.stroke();
+    }
+
+    for (let i = 0; i < landmarks.length; i++) {
+      if (i < 11) continue;
+      
+      const lm = landmarks[i];
+      if ((lm.visibility ?? 1) < 0.35) continue;
+      const px = lm.x * canvas.width;
+      const py = lm.y * canvas.height;
+
+      ctx.beginPath();
+      ctx.arc(px, py, 5, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(0, 212, 255, 0.9)";
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(px, py, 7, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+
+    if (gestureTimerRef.current && landmarks[15] && landmarks[16]) {
+      const elapsed = Date.now() - gestureTimerRef.current;
+      const progress = Math.min(elapsed / 1000, 1.0);
+      
+      const dominantHand = landmarks[15].y < landmarks[16].y ? landmarks[15] : landmarks[16];
+      
+      if (progress > 0) {
+        ctx.beginPath();
+        ctx.arc(dominantHand.x * canvas.width, dominantHand.y * canvas.height - 40, 20, -Math.PI / 2, (-Math.PI / 2) + (Math.PI * 2 * progress));
+        ctx.strokeStyle = "rgba(139, 92, 246, 0.9)";
+        ctx.lineWidth = 6;
+        ctx.stroke();
+        
+        ctx.fillStyle = "white";
+        ctx.font = "12px sans-serif";
+        ctx.textAlign = "center";
+        
+        const isCurrentlyRunning = wsRef.current?.readyState === WebSocket.OPEN;
+        ctx.fillText(isCurrentlyRunning ? "STOP" : "START", dominantHand.x * canvas.width, dominantHand.y * canvas.height - 36);
+      }
+    }
+  };
+
+  const areHandsTogether = (lms: any[]) => {
+    const lWrist = lms[15];
+    const rWrist = lms[16];
+    const lShoulder = lms[11];
+    const rShoulder = lms[12];
+    
+    if (!lWrist || !rWrist || !lShoulder || !rShoulder) return false;
+    if ((lWrist.visibility ?? 1) < 0.6 || (rWrist.visibility ?? 1) < 0.6) return false;
+    
+    const dist = (a: any, b: any) => Math.hypot(a.x - b.x, a.y - b.y);
+    const wristDist = dist(lWrist, rWrist);
+    const shoulderWidth = dist(lShoulder, rShoulder);
+    
+    // Check if wrists are very close to each other (less than ~35% of shoulder width)
+    return shoulderWidth > 0 && (wristDist / shoulderWidth) < 0.35;
+  };
+
+  const loop = () => {
+    const video = videoRef.current;
+    if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+      rafRef.current = requestAnimationFrame(loop);
+      return;
+    }
+
+    const detector = detectorRef.current;
+    if (!detector) {
+      rafRef.current = requestAnimationFrame(loop);
+      return;
+    }
+
+    const result = detector.detectForVideo(video, performance.now());
+    const landmarks = result.landmarks[0];
+    
+    if (landmarks && landmarks.length >= 33) {
+      drawOverlay(landmarks.slice(0, 33));
+
+      // Gesture Logic
+      if (Date.now() > gestureCooldownRef.current) {
+        const handsTogether = areHandsTogether(landmarks);
+        
+        if (handsTogether) {
+          if (!gestureTimerRef.current) gestureTimerRef.current = Date.now();
+          const elapsed = Date.now() - gestureTimerRef.current;
+          
+          if (elapsed >= 1000) {
+            // Trigger action!
+            if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+              startWsSession();
+            } else {
+              stopWsSession();
+            }
+            gestureCooldownRef.current = Date.now() + 3000;
+            gestureTimerRef.current = null;
+          }
+        } else {
+          gestureTimerRef.current = null;
+        }
+      }
+
+      // WebSocket streaming
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(
+          JSON.stringify({
+            type: "landmark_frame",
+            timestamp_ms: Date.now(),
+            landmarks: landmarks.slice(0, 33).map((lm) => ({
+              x: lm.x,
+              y: lm.y,
+              z: lm.z,
+              visibility: lm.visibility ?? 1,
+            })),
+          })
+        );
+      }
+    } else {
+      gestureTimerRef.current = null;
+    }
+
+    rafRef.current = requestAnimationFrame(loop);
+  };
+
+  const startLoop = () => {
+    if (rafRef.current !== null) return;
+    rafRef.current = requestAnimationFrame(loop);
+  };
 
   function stopLoop() {
     if (rafRef.current != null) {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
     }
+  }
+
+  function stopWsSession() {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: "session_end" }));
+    }
+    wsRef.current?.close();
+    wsRef.current = null;
+    
+    setRunning(false);
+    setWsStatus("Disconnected");
+    if (repCount > 0) {
+      setSessionEnded(true);
+    }
+    setFeedback("Session stopped. Start tracking again or turn camera off.");
   }
 
   function stopSession(sendEndSignal = true) {
@@ -311,6 +418,7 @@ export function PatientExercisePage() {
     }
 
     setRunning(false);
+    setCameraActive(false);
     setWsStatus("Disconnected");
     if (repCount > 0) {
       setSessionEnded(true);
@@ -361,17 +469,26 @@ export function PatientExercisePage() {
             {wsStatus}
           </div>
 
-          {!running ? (
+          {!cameraActive ? (
             <button
               className="btn-primary"
               disabled={!selectedAssignment}
-              onClick={startSession}
+              onClick={startCamera}
             >
-              ▶ Start Session
+              ▶ Turn On Camera
             </button>
+          ) : !running ? (
+             <>
+              <button className="btn-success" onClick={startWsSession}>
+                ▶ Start Tracking
+              </button>
+              <button className="btn-danger" onClick={() => stopSession()} style={{marginLeft: '10px'}}>
+                ■ Turn Off
+              </button>
+             </>
           ) : (
-            <button className="btn-danger" onClick={() => stopSession()}>
-              ■ End Session
+            <button className="btn-danger" onClick={stopWsSession}>
+              ■ Stop Tracking
             </button>
           )}
         </div>
@@ -383,12 +500,12 @@ export function PatientExercisePage() {
       <div className="exercise-main">
         {/* Left: Camera + Feedback */}
         <div className="camera-section">
-          <div className={`camera-container ${running ? "active" : ""}`}>
-            {!running && (
+          <div className={`camera-container ${cameraActive ? "active" : ""}`}>
+            {!cameraActive && (
               <div className="camera-placeholder">
                 <span className="camera-placeholder-icon">📷</span>
                 <span>Camera feed will appear here</span>
-                <span style={{ fontSize: "0.78rem" }}>Select an assignment and click Start Session</span>
+                <span style={{ fontSize: "0.78rem" }}>Select an assignment and click Turn On Camera</span>
               </div>
             )}
             <video ref={videoRef} playsInline muted className="camera-view" />
