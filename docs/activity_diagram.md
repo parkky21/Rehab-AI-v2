@@ -1,451 +1,218 @@
-# Rehab AI — Activity Diagrams
+# Rehab AI — Comprehensive Activity Diagram
 
-> **Scope:** Current production architecture only — React (Vite + TypeScript) web client, FastAPI Python server, MongoDB persistence.  
-> The legacy Tkinter desktop UI (`app.py`) is **deprecated** and excluded from these diagrams.
+> **Scope:** Current production architecture — React (Vite + TypeScript) web client, FastAPI Python server, MongoDB.  
+> The legacy Tkinter desktop UI (`app.py`) is **deprecated** and excluded.
 
 ---
 
-## 1. Top-Level System Activity Diagram
-
-This diagram shows the complete lifecycle of the application from the perspective of **both actors** (Doctor & Patient) and the **system** (Server + Database).
-
 ```mermaid
 flowchart TD
-    Start((●)) --> Auth{User Role?}
+    Start(("● Start"))
 
-    Auth -- Doctor --> D_Login[Doctor Logs In]
-    Auth -- Patient --> P_Login[Patient Logs In]
+    Start --> A1
 
-    %% ===================== DOCTOR SWIMLANE =====================
-    subgraph DoctorFlow["🩺 Doctor Flow"]
-        D_Login --> D_Dashboard[Access Doctor Dashboard]
-        D_Dashboard --> D_Choice{Action?}
-
-        D_Choice --> D_Link[Search & Link Patient]
-        D_Choice --> D_Assign[Create Exercise Assignment]
-        D_Choice --> D_Report[View Patient Report]
-
-        D_Link --> D_Search[Search by Name / Email / Username]
-        D_Search --> D_LinkAPI["POST /doctor/patients/link"]
-        D_LinkAPI --> D_Dashboard
-
-        D_Assign --> D_SelectPatient[Select Linked Patient]
-        D_SelectPatient --> D_SelectExercise[Select Exercise & Target Reps]
-        D_SelectExercise --> D_AssignAPI["POST /doctor/assignments"]
-        D_AssignAPI --> D_Dashboard
-
-        D_Report --> D_SelectReport[Select Patient]
-        D_SelectReport --> D_ReportAPI["GET /doctor/patients/:id/report"]
-        D_ReportAPI --> D_ViewReport[View Avg Score, Trend,\nAdherence %, Progression]
-        D_ViewReport --> D_Dashboard
+    %% ==================== COLUMN 1: Patient & Doctor Auth ====================
+    subgraph AuthBlock["Patient & Doctor Authentication"]
+        direction TB
+        A1["• User Opens Web Application"]
+        A2["• Login via Email & Password\n  POST /auth/login"]
+        A3["• Server Validates Credentials\n  & Returns JWT Tokens"]
+        A4{"Role-Based\nRouting"}
+        A1 --> A2 --> A3 --> A4
     end
 
-    %% ===================== PATIENT SWIMLANE =====================
-    subgraph PatientFlow["🏃 Patient Flow"]
-        P_Login --> P_Choice{Action?}
+    A4 -- "role = doctor" --> D1
+    A4 -- "role = patient" --> P1
 
-        P_Choice --> P_Exercise[Exercise Session]
-        P_Choice --> P_Progress[View My Progress]
-
-        P_Progress --> P_ProgressAPI["GET /patient/progress\nGET /patient/sessions"]
-        P_ProgressAPI --> P_ViewProgress[View Avg Score, Trend,\nAdherence, Session History]
-        P_ViewProgress --> P_Choice
-
-        P_Exercise --> P_FetchAssignments["GET /patient/assignments"]
-        P_FetchAssignments --> P_SelectAssignment[Select Assignment]
-        P_SelectAssignment --> P_Camera[Turn On Camera]
-        P_Camera --> P_InitMP[Initialize Browser MediaPipe\nWASM Pose Landmarker]
-        P_InitMP --> P_DetectionLoop[Start Pose Detection Loop]
-        P_DetectionLoop --> P_GestureWait{"Hands Together\nGesture ≥ 1s?"}
-        P_GestureWait -- No --> P_DetectionLoop
-        P_GestureWait -- Yes --> P_StartSession[Start WebSocket Session]
+    %% ==================== DOCTOR FLOW ====================
+    subgraph DoctorBlock["Doctor Dashboard Module"]
+        direction TB
+        D1["• Access Doctor Dashboard\n  /doctor"]
+        D2["• Search & Link Patients\n  by Name / Email / Username\n  POST /doctor/patients/link"]
+        D3["• Assign Exercise to Patient\n  Select Exercise Type & Target Reps\n  POST /doctor/assignments"]
+        D4["• View Patient Overview Table\n  GET /doctor/patients/assignment-stats\n  Filter by Name / Email"]
+        D5["• View Patient Report\n  GET /doctor/patients/:id/report\n  Avg Score, Trend, Adherence %,\n  Score History, Progression Decision"]
+        D1 --> D2 --> D3 --> D4 --> D5
     end
 
-    %% ===================== SESSION SWIMLANE =====================
-    subgraph SessionFlow["⚡ Real-Time Exercise Session"]
-        P_StartSession --> WS_Connect["WS /ws/session\n?token=JWT&assignment_id=ID"]
-        WS_Connect --> WS_Auth{Server:\nAuthenticate JWT &\nVerify Assignment}
-        WS_Auth -- Invalid --> WS_Error[Send Error & Close]
-        WS_Auth -- Valid --> WS_Provision[Provision\nRealtimeSessionRuntime]
-        WS_Provision --> WS_SessionDoc[Insert Session Doc\ninto MongoDB]
-        WS_SessionDoc --> WS_Started["Send session_started\npacket to Client"]
-        WS_Started --> FrameLoop
+    D5 -.->|"Assignments appear\nin Patient's list"| P1
 
-        subgraph FrameLoop["🔁 Frame Processing Loop"]
-            FL_Capture[Capture Video Frame] --> FL_MediaPipe[Browser MediaPipe:\nExtract 33 Landmarks]
-            FL_MediaPipe --> FL_DrawOverlay[Draw Skeleton Overlay\non Canvas]
-            FL_MediaPipe --> FL_Send["Send landmark_frame\nJSON over WebSocket"]
-
-            FL_Send --> BE_Smooth[EMA Landmark Smoother]
-            BE_Smooth --> BE_Process[Process Landmarks\n& Compute Hip Center]
-            BE_Process --> BE_Sway[Sway & Stability Tracking]
-            BE_Sway --> BE_FSM[Exercise FSM\nState Tracking]
-            BE_FSM --> BE_RepCheck{Repetition\nCompleted?}
-
-            BE_RepCheck -- No --> BE_Feedback[Feedback Engine\nEvaluation]
-            BE_Feedback --> FL_FeedbackSend["Send frame_feedback\nto Client"]
-            FL_FeedbackSend --> FL_UpdateUI[Update Feedback Text,\nStage Badge, Sway Meter]
-            FL_UpdateUI --> FL_GestureCheck{"Stop Gesture\nor Target Reached?"}
-            FL_GestureCheck -- No --> FL_Capture
-            FL_GestureCheck -- Yes --> SessionEnd
-
-            BE_RepCheck -- Yes --> BE_RuleScore[Rule-Based Scoring:\nROM, Stability, Tempo]
-            BE_RuleScore --> BE_MLScore[ML Inference:\nLSTM + Transformer]
-            BE_MLScore --> BE_Ensemble["Ensemble Blend:\n45% LSTM + 20% TF + 35% Rules"]
-            BE_Ensemble --> BE_RepDB[Insert rep_event\ninto MongoDB]
-            BE_RepDB --> BE_RepSend["Send rep_event\nin frame_feedback"]
-            BE_RepSend --> FL_UpdateScores[Update Score Rings,\nRep History Cards,\nSession Average]
-            FL_UpdateScores --> FL_GestureCheck
-        end
+    %% ==================== PATIENT ENTRY ====================
+    subgraph PatientEntry["Patient Session Initialization"]
+        direction TB
+        P1["• Patient Logs into\n  Web Application /patient"]
+        P2["• Fetch Active Assignments\n  GET /patient/assignments"]
+        P3["• Select Exercise Assignment\n  from Dropdown"]
+        P4["• Click Turn On Camera\n  navigator.mediaDevices.getUserMedia"]
+        P5["• Initialize MediaPipe Pose\n  Detection WASM in Browser\n  (pose_landmarker_lite, float16)"]
+        P6["• Detect Gesture-Based\n  'Start' Signal\n  (Hands Together ≥ 1 Second)"]
+        P7["• Establish Secure WebSocket\n  Connection with JWT Auth\n  WS /ws/session?token=...&assignment_id=..."]
+        P1 --> P2 --> P3 --> P4 --> P5 --> P6 --> P7
     end
 
-    %% ===================== POST-SESSION =====================
-    subgraph PostSession["📊 Post-Session"]
-        SessionEnd[Stop Session &\nClose WebSocket] --> PS_Finalize[Finalize Session Summary\non Server]
-        PS_Finalize --> PS_UpdateDB[Update Session Doc\nin MongoDB as completed]
-        PS_UpdateDB --> PS_MarkAssignment[Mark Assignment\nas completed]
-        PS_MarkAssignment --> PS_FetchScores[Fetch Last 5\nSession Scores]
-        PS_FetchScores --> PS_Progression[Progression Engine:\nCompute Decision]
-        PS_Progression --> PS_ProgressionDB[Insert Progression\nSnapshot into MongoDB]
-        PS_ProgressionDB --> PS_ClientSummary[Show Session Complete\nDashboard on Client]
-        PS_ClientSummary --> P_Choice
+    P7 --> L1
+    P7 --> B1
+
+    %% ==================== CLIENT-SIDE LANDMARK PROCESSING ====================
+    subgraph LandmarkBlock["Real-Time Landmark Processing (Client)"]
+        direction TB
+        L1["• Capture Live Video\n  Frames via Camera"]
+        L2["• Detect 33 3D Pose\n  Landmarks Using\n  MediaPipe WASM"]
+        L3["• Overlay Skeletal\n  Visualization on\n  Live Video Canvas"]
+        L4["• Stream Pose Landmarks\n  (X, Y, Z, Visibility)\n  at ~30 FPS Over WebSocket"]
+        L1 --> L2 --> L3 --> L4
     end
 
-    WS_Error --> P_Choice
+    L4 --> S1
+
+    %% ==================== BACKEND SESSION MANAGEMENT ====================
+    subgraph SessionBlock["Backend Session Management"]
+        direction TB
+        B1["• Authenticate WebSocket\n  Connection via JWT"]
+        B2["• Verify Patient Assignment\n  exists & is active in MongoDB"]
+        B3["• Initialize\n  RealtimeSessionRuntime\n  for requested Exercise"]
+        B4["• Insert Session Document\n  into MongoDB\n  status: in_progress"]
+        B5["• Send session_started\n  packet to Client"]
+        B1 --> B2 --> B3 --> B4 --> B5
+    end
+
+    %% ==================== SERVER PIPELINE ====================
+    subgraph PipelineBlock["Server-Side Processing Pipeline"]
+        direction TB
+        S1["• Validate & Parse\n  33 Landmark Coordinates"]
+        S2["• Smooth Landmarks Using\n  EMA Exponential Moving\n  Average Smoother (α=0.3)"]
+        S3["• Compute Hip Center\n  process_landmarks()"]
+        S1 --> S2 --> S3
+    end
+
+    S3 --> BM1
+    S3 --> F1
+
+    %% ==================== BIOMECHANICAL ANALYSIS ====================
+    subgraph BioBlock["Biomechanical Analysis Module"]
+        direction TB
+        BM1["• Track Sway Between\n  Left and Right Hips\n  SwayTracker (window=30)"]
+        BM2["• FSM-Based Exercise\n  Stage Detection\n  (e.g., up ↔ down states)"]
+        BM3["• Track ROM via ROMTracker\n  & Tempo via TempoTracker"]
+        BM4{"Repetition\nCompleted?"}
+        BM5["• Analyze Landmark Sequences\n  to Grade ROM, Tempo,\n  Stability per Rep"]
+        BM6["• ML Model Inference\n  LSTM Scorer + Transformer\n  Scorer on Frame Buffer"]
+        BM7["• Ensemble Score Aggregation\n  45% LSTM + 20% Transformer\n  + 35% Rule-Based"]
+        BM1 --> BM2 --> BM3 --> BM4
+        BM4 -- "Yes" --> BM5 --> BM6 --> BM7
+    end
+
+    BM4 -- "No" --> F1
+    BM7 --> PA1
+    BM7 --> F1
+
+    %% ==================== FEEDBACK GENERATION ====================
+    subgraph FeedbackBlock["Feedback Generation"]
+        direction TB
+        F1["• Real-Time Feedback Engine\n  Evaluate Sway, ROM Depth,\n  Rep Speed per Frame"]
+        F2["• Stream frame_feedback\n  Payload via WebSocket\n  (counter, stage, sway,\n  feedback_rules, rep_event)"]
+        F3["• Client Updates UI:\n  Rep Count, Stage Badge,\n  Sway Meter, Score Rings,\n  Rep History Cards"]
+        F1 --> F2 --> F3
+    end
+
+    F3 -->|"Next Frame"| L1
+
+    %% ==================== PROGRESSION & ANALYTICS ====================
+    subgraph ProgressBlock["Progression & Analytics Module"]
+        direction TB
+        PA1["• Log Rep Event with\n  Scores in MongoDB\n  (rep_events collection)"]
+        PA2["• On Session End:\n  Finalize Session Summary\n  (Avg Scores, Duration, Total Reps)"]
+        PA3["• Update Session & Assignment\n  status → completed in MongoDB"]
+        PA4["• AI Progression Engine:\n  Analyze Last 5 Session Scores\n  avg ≥ 80 → increase_difficulty\n  avg ≤ 50 → decrease_difficulty"]
+        PA5["• Store Progression Snapshot\n  in MongoDB\n  (decision, multipliers, scores)"]
+        PA6["• Display Final Summary\n  Stats to Patient\n  (Reps, Avg Score, Duration)"]
+        PA1 --> PA2 --> PA3 --> PA4 --> PA5 --> PA6
+    end
+
+    PA6 --> PatientProgress
+
+    %% ==================== PATIENT PROGRESS VIEW ====================
+    subgraph PatientProgress["Patient Progress Dashboard"]
+        direction TB
+        PP1["• View My Progress\n  /patient/progress"]
+        PP2["• Fetch Progress & Sessions\n  GET /patient/progress\n  GET /patient/sessions"]
+        PP3["• Display: Avg Score,\n  Trend (📈📉➡️),\n  Adherence %, Session Count"]
+        PP4["• Recent Scores Bar Chart\n  & Session History List"]
+        PP5["• Latest Progression\n  Decision & Reason"]
+        PP1 --> PP2 --> PP3 --> PP4 --> PP5
+    end
+
+    %% ==================== STREAMING LOOP ANNOTATION ====================
+    subgraph StreamingLoop["High-Speed Streaming Loop (~30 FPS)"]
+        direction LR
+        SL1["• Stream Landmark Payload\n  via WebSocket"]
+        SL2["• Receive frame_feedback\n  from Backend"]
+        SL1 --> SL2
+    end
+
+    L4 -.-> SL1
+    SL2 -.-> F3
+
+    %% ==================== STYLING ====================
+    classDef blueBlock fill:#dce6f5,stroke:#4a7ab5,color:#1a3a5c,font-weight:bold
+    classDef lightBlueBlock fill:#e3f0fa,stroke:#5ba3d9,color:#1a3a5c,font-weight:bold
+    classDef greenBlock fill:#d9eddb,stroke:#4a9b52,color:#1a3c1f,font-weight:bold
+    classDef orangeBlock fill:#fce4cc,stroke:#d4883a,color:#5c3310,font-weight:bold
+    classDef yellowBlock fill:#fef9d9,stroke:#c4a93a,color:#5c4a10,font-weight:bold
+    classDef tealBlock fill:#d4f0eb,stroke:#3a9b8f,color:#1a3c36,font-weight:bold
+    classDef purpleBlock fill:#e8dff5,stroke:#7b5ea3,color:#3a1a5c,font-weight:bold
+    classDef grayBlock fill:#f0f0f0,stroke:#888,color:#333,font-weight:bold
+
+    class AuthBlock blueBlock
+    class DoctorBlock purpleBlock
+    class PatientEntry blueBlock
+    class LandmarkBlock lightBlueBlock
+    class SessionBlock greenBlock
+    class PipelineBlock greenBlock
+    class BioBlock orangeBlock
+    class FeedbackBlock tealBlock
+    class ProgressBlock yellowBlock
+    class PatientProgress lightBlueBlock
+    class StreamingLoop grayBlock
 ```
 
 ---
 
-## 2. Authentication & Authorization Activity
+### Module Legend
 
-```mermaid
-flowchart TD
-    A((●)) --> B[User Opens App]
-    B --> C{Has Valid\nAccess Token?}
-    C -- Yes --> D[Decode JWT & Fetch /auth/me]
-    D --> E{Token Valid?}
-    E -- Yes --> F{User Role?}
-    F -- doctor --> G[Redirect to /doctor]
-    F -- patient --> H[Redirect to /patient/exercise]
-    E -- No --> I[Redirect to /login]
+| Color | Module | Description |
+|---|---|---|
+| 🔵 Blue | **Authentication & Patient Init** | Login, JWT auth, camera setup, MediaPipe init, gesture activation |
+| 🟣 Purple | **Doctor Dashboard** | Link patients, assign exercises, view reports & progression |
+| 🔷 Light Blue | **Real-Time Landmark Processing** | Client-side MediaPipe WASM, skeleton overlay, landmark streaming |
+| 🟢 Green | **Backend Session Management** | WebSocket auth, runtime provisioning, EMA smoothing pipeline |
+| 🟠 Orange | **Biomechanical Analysis** | Sway tracking, FSM state detection, ROM/Tempo grading, ML ensemble scoring |
+| 🟦 Teal | **Feedback Generation** | Per-frame feedback engine, WebSocket broadcast, UI updates |
+| 🟡 Yellow | **Progression & Analytics** | Rep logging, session summary, AI progression engine, MongoDB persistence |
+| ⬜ Gray | **Streaming Loop** | Continuous ~30 FPS bidirectional WebSocket data exchange |
 
-    C -- No --> I
-
-    I --> J{Action?}
-    J -- Register --> K["POST /auth/register\n(name, email, username, password, role)"]
-    K --> L[Hash Password & Insert User]
-    L --> M[Return Access + Refresh Tokens]
-
-    J -- Login --> N["POST /auth/login\n(email, password)"]
-    N --> O{Credentials Valid?}
-    O -- No --> P[Return 401 Unauthorized]
-    P --> I
-    O -- Yes --> M
-
-    M --> Q[Store Tokens in Client]
-    Q --> F
-
-    style P fill:#ff6b6b,color:#fff
-```
-
----
-
-## 3. Doctor Workflow Activity
-
-```mermaid
-flowchart TD
-    A((●)) --> B[Doctor Dashboard Loads]
-    B --> C["Parallel API Calls:\nGET /doctor/patients\nGET /exercises\nGET /doctor/patients/assignment-stats"]
-    C --> D[Render Dashboard:\nLink Panel, Assign Panel,\nPatient Table, Report Panel]
-
-    D --> E{Doctor Action?}
-
-    %% Link Patient
-    E -- Link Patient --> F[Type Search Query]
-    F --> G["GET /doctor/patients/search?q=..."]
-    G --> H[Display Search Results\nwith Linked Badge]
-    H --> I[Select Patient from Results]
-    I --> J["POST /doctor/patients/link\n(patient_id or email or username)"]
-    J --> K[Upsert doctor_patient_links\nin MongoDB]
-    K --> L[Refresh Patient List & Stats]
-    L --> D
-
-    %% Assign Exercise
-    E -- Assign Exercise --> M[Select Patient from Dropdown]
-    M --> N[Select Exercise Type]
-    N --> O[Set Target Reps]
-    O --> P["POST /doctor/assignments"]
-    P --> Q{Exercise\nSupported?}
-    Q -- No --> R[Return 400 Error]
-    R --> D
-    Q -- Yes --> S{Patient\nLinked?}
-    S -- No --> T[Return 403 Forbidden]
-    T --> D
-    S -- Yes --> U[Insert Assignment Doc\nstatus: assigned]
-    U --> V[Refresh Stats Table]
-    V --> D
-
-    %% View Report
-    E -- View Report --> W[Select Patient Row\nin Stats Table]
-    W --> X["GET /doctor/patients/:id/report\n(?exercise_name=optional)"]
-    X --> Y[Server Aggregates:\n- Completed Sessions\n- Average Scores\n- Adherence %\n- Score Trend\n- Latest Progression Snapshot]
-    Y --> Z[Render Report:\nAvg Score, Trend Icon,\nAdherence %, Score Bars,\nProgression Decision]
-    Z --> D
-
-    E -- Done --> End((●))
-```
-
----
-
-## 4. Patient Exercise Session — Detailed Activity
-
-```mermaid
-flowchart TD
-    A((●)) --> B["GET /patient/assignments\n(status: assigned | in_progress)"]
-    B --> C[Display Assignment Dropdown]
-    C --> D[Patient Selects Assignment]
-    D --> E[Click Turn On Camera]
-    E --> F["navigator.mediaDevices\n.getUserMedia({ video: true })"]
-    F --> G{Camera\nGranted?}
-    G -- No --> H[Show Error Message]
-    H --> C
-    G -- Yes --> I[Start Video Playback]
-    I --> J["Download & Initialize\nMediaPipe Pose Landmarker\n(WASM, float16)"]
-    J --> K[Start requestAnimationFrame Loop]
-    K --> L[Show: Bring hands\ntogether to START]
-
-    L --> M[Detect Pose in Frame]
-    M --> N{Landmarks\nDetected?}
-    N -- No --> M
-    N -- Yes --> O[Draw Skeleton Overlay\non Canvas]
-    O --> P{Wrists Within\n35% Shoulder Width?}
-    P -- No --> Q[Reset Gesture Timer]
-    Q --> M
-    P -- Yes --> R{Held for\n≥ 1 Second?}
-    R -- No --> S[Draw Progress Ring\non Dominant Hand]
-    S --> M
-    R -- Yes --> T{WebSocket\nAlready Open?}
-    T -- No --> StartWS
-    T -- Yes --> StopWS
-
-    subgraph StartWS["Start Session"]
-        U[Open WebSocket\nwith JWT + assignment_id] --> V[Reset All Scores & UI]
-        V --> W["Server: Authenticate,\nVerify Assignment,\nProvision Runtime"]
-        W --> X[Receive session_started]
-        X --> Y[Begin Streaming\nlandmark_frame packets]
-    end
-
-    subgraph FrameProcessing["Per-Frame Server Processing"]
-        Y --> BE1[Validate 33 Landmarks]
-        BE1 --> BE2[EMA Smooth Landmarks]
-        BE2 --> BE3["process_landmarks()\nCompute Hip Center"]
-        BE3 --> BE4[SwayTracker.update\nhip_center_x]
-        BE4 --> BE5["Exercise.process()\nFSM State Machine"]
-        BE5 --> BE6{Rep\nCompleted?}
-        BE6 -- No --> BE7[FeedbackEngine.evaluate\nwith context]
-        BE7 --> BE8["Send frame_feedback:\ncounter, stage, sway,\nfeedback_rules"]
-        BE8 --> UI1[Update: Rep Count,\nStage Badge, Sway Meter,\nFeedback Text]
-        UI1 --> M
-
-        BE6 -- Yes --> SC1["Rule Scoring:\ncompute_rom_score()\ncompute_stability_score()\ncompute_tempo_score()"]
-        SC1 --> SC2["ML Scoring:\nLSTM.score_rep()\nTransformer.score_rep()"]
-        SC2 --> SC3["Ensemble:\nfinal = 0.45×LSTM\n+ 0.20×TF + 0.35×Rules"]
-        SC3 --> SC4[Insert rep_event\ninto MongoDB]
-        SC4 --> SC5["Send rep_event in\nframe_feedback response"]
-        SC5 --> UI2[Update: Score Rings\nROM / Stability / Tempo,\nFinal Score, Session Avg,\nAppend Rep Card]
-        UI2 --> M
-    end
-
-    subgraph StopWS["Stop Session"]
-        SW1["Send session_end\nJSON message"] --> SW2[Close WebSocket]
-        SW2 --> SW3["Server: session.end_session()\nCompute Summary"]
-        SW3 --> SW4[Update Session Doc\nstatus → completed]
-        SW4 --> SW5[Update Assignment\nstatus → completed]
-        SW5 --> SW6["Fetch Last 5 Scores\nfor this Exercise"]
-        SW6 --> SW7["ProgressionState\n.compute_progression()"]
-        SW7 --> SW8[Insert progression_snapshot\ninto MongoDB]
-        SW8 --> SW9["Client: Show Session\nComplete Dashboard\n(Reps, Avg Score, Duration)"]
-    end
-```
-
----
-
-## 5. Patient Progress View Activity
-
-```mermaid
-flowchart TD
-    A((●)) --> B[Patient Navigates to\n/patient/progress]
-    B --> C["Parallel Fetch:\nGET /patient/progress\nGET /patient/sessions"]
-
-    C --> D["Server Computes:\n- All Completed Sessions\n- Average Final Score\n- Trend Label (improving/stable/declining)\n- Adherence % (completed / total assignments)\n- Latest Progression Snapshot"]
-
-    D --> E[Render Progress Dashboard]
-
-    E --> F[Stat Cards:\nAvg Score | Trend | Adherence | Sessions]
-    E --> G[Recent Scores Bar Chart]
-    E --> H[Progression Decision:\nAction + Reason]
-    E --> I[Session History List:\nExercise, Date, Score, Reps, Status]
-```
-
----
-
-## 6. Scoring Pipeline — Internal Activity
-
-```mermaid
-flowchart TD
-    A[Rep Completed\nby FSM] --> B["ROMTracker.complete_rep()\n→ max_angle - min_angle"]
-    B --> C["TempoTracker.complete_rep()\n→ elapsed seconds"]
-    C --> D["SwayTracker.current_std\n→ hip stability metric"]
-
-    D --> RulePath
-    D --> MLPath
-
-    subgraph RulePath["Rule-Based Scoring"]
-        R1["ROM Score =\nmin(user_rom / target_rom × 100, 100)"]
-        R2["Stability Score =\n100 - (sway / acceptable_sway) × factor"]
-        R3["Tempo Score =\n100 - |deviation| × factor × direction_mult\n(fast: ×2, slow: ×0.5)"]
-        R1 --> R4["Final Rule Score =\nw_rom×ROM + w_stability×Stability\n+ w_tempo×Tempo"]
-        R2 --> R4
-        R3 --> R4
-    end
-
-    subgraph MLPath["ML Model Scoring"]
-        M1[Retrieve Frame Buffer\nfrom LSTM Scorer]
-        M1 --> M2["LSTM Inference\n→ Predicted Score"]
-        M3[Retrieve Frame Buffer\nfrom Transformer Scorer]
-        M3 --> M4["Transformer Inference\n→ Predicted Score"]
-    end
-
-    R4 --> Ensemble
-    M2 --> Ensemble
-    M4 --> Ensemble
-
-    subgraph Ensemble["Ensemble Blending"]
-        E1["For each metric\n(ROM, Stability, Tempo, Final):\nblended = 0.45×LSTM + 0.20×TF + 0.35×Rules"]
-    end
-
-    Ensemble --> F[Store as last_rep_scores]
-    F --> G["Broadcast rep_event\nvia WebSocket"]
-    F --> H[Insert into MongoDB\nrep_events collection]
-```
-
----
-
-## 7. AI Progression Engine Activity
-
-```mermaid
-flowchart TD
-    A[Session Ends] --> B[Fetch Last 5 Completed\nSession Scores from MongoDB]
-    B --> C{5 Scores\nAvailable?}
-    C -- No --> D["Action: none\nReason: Insufficient data"]
-    C -- Yes --> E[Compute Average\nof Last 5 Scores]
-    E --> F{Average ≥ 80?}
-    F -- Yes --> G["Action: increase_difficulty\nReason: Consistently scoring above 80"]
-    F -- No --> H{Average ≤ 50?}
-    H -- Yes --> I["Action: decrease_difficulty\nReason: Consistently scoring below 50"]
-    H -- No --> J["Action: none\nReason: Performance is within\nacceptable range"]
-
-    G --> K[Insert progression_snapshot\ninto MongoDB]
-    I --> K
-    J --> K
-
-    K --> L["Snapshot Contains:\n- patient_id, doctor_id\n- exercise_name\n- latest_score\n- recent_scores[]\n- target_reps\n- target_rom_multiplier\n- sway_tolerance_multiplier\n- decision: {action, reason}\n- snapshot_at"]
-```
-
----
-
-## 8. Supported Exercises
-
-The system currently supports **10 exercises**, each with a custom FSM and `ExerciseConfig`:
+### Supported Exercises (10)
 
 | Exercise | FSM Tracking | Key Metric |
 |---|---|---|
-| Squats | Hip-to-knee vertical distance | Depth ROM |
-| Sit To Stand | Seated ↔ Standing transitions | Verticality |
+| Squats | Hip-knee vertical distance | Depth ROM |
+| Sit To Stand | Seated ↔ Standing | Verticality |
 | Heel Raises | Ankle elevation | Calf ROM |
-| Standing Hip Abduction | Lateral leg angle | Abduction ROM |
-| Standing Hip Extension | Backward leg angle | Extension ROM |
+| Hip Abduction | Lateral leg angle | Abduction ROM |
+| Hip Extension | Backward leg angle | Extension ROM |
 | Leg Raises | Forward leg elevation | Flexion ROM |
-| Marching | Alternating knee lifts | Bilateral tracking |
-| Forward Arm Raises | Shoulder flexion angle | Arm ROM |
-| Side Arm Raises | Shoulder abduction angle | Arm ROM |
-| Wall Push-ups | Elbow angle changes | Push-up depth |
+| Marching | Alternating knee lifts | Bilateral |
+| Forward Arm Raises | Shoulder flexion | Arm ROM |
+| Side Arm Raises | Shoulder abduction | Arm ROM |
+| Wall Push-ups | Elbow angle | Push-up depth |
 
----
+### MongoDB Collections
 
-## 9. MongoDB Collections Used
-
-```mermaid
-erDiagram
-    users {
-        ObjectId _id
-        string name
-        string email
-        string username
-        string password_hash
-        string role
-        datetime created_at
-    }
-
-    doctor_patient_links {
-        ObjectId _id
-        ObjectId doctor_id
-        ObjectId patient_id
-        string status
-        datetime created_at
-    }
-
-    exercise_assignments {
-        ObjectId _id
-        ObjectId doctor_id
-        ObjectId patient_id
-        string exercise_name
-        int target_reps
-        string status
-        datetime created_at
-    }
-
-    sessions {
-        ObjectId _id
-        ObjectId assignment_id
-        ObjectId doctor_id
-        ObjectId patient_id
-        string exercise_name
-        int target_reps
-        string status
-        datetime started_at
-        datetime ended_at
-        object summary
-    }
-
-    rep_events {
-        ObjectId _id
-        ObjectId session_id
-        ObjectId patient_id
-        ObjectId doctor_id
-        string exercise_name
-        int rep_number
-        object scores
-        float rep_time
-        float rom_value
-        datetime created_at
-    }
-
-    progression_snapshots {
-        ObjectId _id
-        ObjectId patient_id
-        ObjectId doctor_id
-        string exercise_name
-        float latest_score
-        array recent_scores
-        object decision
-        datetime snapshot_at
-    }
-
-    users ||--o{ doctor_patient_links : "doctor links to"
-    users ||--o{ doctor_patient_links : "patient linked by"
-    users ||--o{ exercise_assignments : "assigned to"
-    exercise_assignments ||--o{ sessions : "starts"
-    sessions ||--o{ rep_events : "contains"
-    sessions ||--o| progression_snapshots : "triggers"
-```
+| Collection | Purpose |
+|---|---|
+| `users` | Doctor & patient accounts with hashed passwords |
+| `doctor_patient_links` | Doctor-patient relationship mapping |
+| `exercise_assignments` | Prescribed exercises with target reps |
+| `sessions` | Exercise session records with summaries |
+| `rep_events` | Individual rep scores & metrics |
+| `progression_snapshots` | AI-generated difficulty adjustment decisions |
