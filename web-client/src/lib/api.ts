@@ -12,8 +12,17 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000/api
 
 async function parseJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || `Request failed with ${response.status}`);
+    let message = `Request failed with ${response.status}`;
+    try {
+      const body = await response.json();
+      if (body?.detail) {
+        message = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
+      }
+    } catch {
+      // If JSON parsing fails, use the status text
+      message = response.statusText || message;
+    }
+    throw new Error(message);
   }
   return (await response.json()) as T;
 }
@@ -147,6 +156,29 @@ export async function getDoctorReport(accessToken: string, patientId: string): P
   return parseJson<any>(res);
 }
 
+export async function getDoctorPatientSessions(accessToken: string, patientId: string): Promise<SessionDoc[]> {
+  const res = await fetch(`${API_BASE}/doctor/patients/${patientId}/sessions`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const body = await parseJson<{ sessions: SessionDoc[] }>(res);
+  return body.sessions;
+}
+
+export async function postSessionFeedback(
+  accessToken: string,
+  sessionId: string,
+  doctorFeedback: string
+): Promise<void> {
+  await fetch(`${API_BASE}/doctor/sessions/${sessionId}/feedback`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ doctor_feedback: doctorFeedback }),
+  });
+}
+
 export async function getPatientAssignments(accessToken: string): Promise<Assignment[]> {
   const res = await fetch(`${API_BASE}/patient/assignments`, {
     headers: { Authorization: `Bearer ${accessToken}` },
@@ -168,4 +200,56 @@ export async function getPatientProgress(accessToken: string): Promise<any> {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   return parseJson<any>(res);
+}
+
+export async function getGlobalAiInsights(accessToken: string): Promise<string> {
+  const res = await fetch(`${API_BASE}/patient/progress/ai-insights`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const body = await parseJson<{ insights: string }>(res);
+  return body.insights;
+}
+
+export async function getPatientFeedback(accessToken: string): Promise<any[]> {
+  const res = await fetch(`${API_BASE}/patient/feedback`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const body = await parseJson<{ feedback: any[] }>(res);
+  return body.feedback;
+}
+
+export async function postDoctorFeedback(
+  accessToken: string,
+  patientId: string,
+  message: string,
+  category: string = "general"
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/doctor/patients/${patientId}/feedback`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ patient_id: patientId, message, category }),
+  });
+  await parseJson<Record<string, string>>(res);
+}
+
+export async function getDoctorPatientFeedback(
+  accessToken: string,
+  patientId: string
+): Promise<any[]> {
+  const res = await fetch(`${API_BASE}/doctor/patients/${patientId}/feedback`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const body = await parseJson<{ feedback: any[] }>(res);
+  return body.feedback;
+}
+
+
+export async function getPatientSessionAiFeedback(accessToken: string, sessionId: string): Promise<{ feedback: string }> {
+  const res = await fetch(`${API_BASE}/patient/sessions/${sessionId}/ai-feedback`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  return parseJson<{ feedback: string }>(res);
 }
