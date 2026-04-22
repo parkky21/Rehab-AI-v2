@@ -14,20 +14,32 @@ function scoreClass(score: number): string {
   return "poor";
 }
 
-interface RepCardProps {
-  rep: RepEvent;
+function scoreEmoji(score: number): string {
+  if (score >= 85) return "🔥";
+  if (score >= 70) return "✨";
+  if (score >= 50) return "👍";
+  return "💪";
 }
 
-export function RepCard({ rep }: RepCardProps) {
+interface RepCardProps {
+  rep: RepEvent;
+  compact?: boolean;
+}
+
+export function RepCard({ rep, compact = false }: RepCardProps) {
   const finalScore = rep.scores.final_score;
   const color = scoreColor(finalScore);
+  const cls = scoreClass(finalScore);
 
   return (
-    <div className="rep-card">
+    <div className={`rep-card ${compact ? "rep-card-compact" : ""} rep-card-${cls}`}>
       <div className="rep-card-header">
-        <span className="rep-card-number">Rep {rep.rep_number}</span>
+        <span className="rep-card-number">
+          <span className="rep-card-emoji">{scoreEmoji(finalScore)}</span>
+          Rep {rep.rep_number}
+        </span>
         <span
-          className={`rep-card-score ${scoreClass(finalScore)}`}
+          className={`rep-card-score ${cls}`}
           style={{ color }}
         >
           {finalScore}
@@ -46,10 +58,12 @@ export function RepCard({ rep }: RepCardProps) {
           <span className="rep-card-metric-label">Tempo</span>
           <span className="rep-card-metric-value">{rep.scores.tempo_score}</span>
         </div>
-        <div className="rep-card-metric">
-          <span className="rep-card-metric-label">Time</span>
-          <span className="rep-card-metric-value">{rep.rep_time.toFixed(1)}s</span>
-        </div>
+        {!compact && (
+          <div className="rep-card-metric">
+            <span className="rep-card-metric-label">Time</span>
+            <span className="rep-card-metric-value">{rep.rep_time.toFixed(1)}s</span>
+          </div>
+        )}
       </div>
     </div>
   );
