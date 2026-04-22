@@ -8,6 +8,8 @@ import {
   getExercises,
   linkPatient,
   searchDoctorPatients,
+  getDoctorPatientSessions,
+  postSessionFeedback
 } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import type {
@@ -15,6 +17,7 @@ import type {
   PatientAssignmentStats,
   PatientSearchResult,
   UserProfile,
+  SessionDoc
 } from "../lib/types";
 
 function scoreColor(score: number): string {
@@ -46,6 +49,8 @@ export function DoctorDashboardPage() {
   const [statsFilter, setStatsFilter] = useState("");
   const [assignmentStats, setAssignmentStats] = useState<PatientAssignmentStats[]>([]);
   const [report, setReport] = useState<any>(null);
+  const [patientSessions, setPatientSessions] = useState<SessionDoc[]>([]);
+  const [feedbackInput, setFeedbackInput] = useState<{ [key: string]: string }>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -165,9 +170,32 @@ export function DoctorDashboardPage() {
     setError(null);
     try {
       const res = await getDoctorReport(accessToken, selectedPatientId);
+      const sessionsRes = await getDoctorPatientSessions(accessToken, selectedPatientId);
       setReport(res);
+      setPatientSessions(sessionsRes);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load report");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSubmitFeedback(sessionId: string) {
+    if (!accessToken) return;
+    const msg = feedbackInput[sessionId];
+    if (!msg || !msg.trim()) return;
+    
+    setBusy(true);
+    try {
+      await postSessionFeedback(accessToken, sessionId, msg.trim());
+      setSuccess("Feedback posted!");
+      setTimeout(() => setSuccess(null), 3000);
+      setFeedbackInput((prev) => ({ ...prev, [sessionId]: "" }));
+      // refresh sessions to show updated feedback
+      const sessionsRes = await getDoctorPatientSessions(accessToken, selectedPatientId);
+      setPatientSessions(sessionsRes);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not post feedback");
     } finally {
       setBusy(false);
     }
@@ -422,6 +450,53 @@ export function DoctorDashboardPage() {
                   <div className="report-stat-value" style={{ fontSize: "0.92rem", textTransform: "capitalize" }}>
                     {report.latest_progression.decision.action} — {report.latest_progression.decision.reason}
                   </div>
+                </div>
+              </div>
+            )}
+            
+            {patientSessions.length > 0 && (
+              <div style={{ marginTop: "2rem" }}>
+                <h3 style={{ marginBottom: "1rem", color: "var(--accent-purple)", fontSize: "1.1rem" }}>📝 Recent Sessions & Feedback</h3>
+                <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+                  {patientSessions.map(session => (
+                    <div key={session.id} className="glass-card" style={{ background: "var(--bg-secondary)", padding: "1.25rem", border: "1px solid var(--border-medium)" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+                        <h4 style={{ margin: 0, fontSize: "1.05rem" }}>{session.exercise_name}</h4>
+                        <span style={{ fontSize: "0.85rem", color: "var(--text-dim)" }}>
+                          {new Date(session.started_at).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: "0.9rem", color: "var(--text-secondary)", marginBottom: "1rem" }}>
+                        Score: <span style={{ color: scoreColor(session.summary?.avg_final_score || 0), fontWeight: "bold" }}>{session.summary?.avg_final_score || 0}</span> | 
+                        Reps: {session.summary?.total_reps || 0}
+                      </div>
+
+                      {session.doctor_feedback ? (
+                        <div style={{ background: "rgba(167, 139, 250, 0.05)", padding: "0.75rem", borderRadius: "8px", border: "1px solid rgba(167, 139, 250, 0.15)", fontSize: "0.9rem" }}>
+                          <strong style={{ color: "var(--accent-purple)", display: "block", marginBottom: "0.25rem" }}>Your Feedback:</strong>
+                          {session.doctor_feedback}
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", gap: "0.5rem" }}>
+                          <input 
+                            type="text" 
+                            className="input-field"
+                            placeholder="Add feedback for this session..." 
+                            value={feedbackInput[session.id] || ""}
+                            onChange={(e) => setFeedbackInput(prev => ({...prev, [session.id]: e.target.value}))}
+                            style={{ flex: 1 }}
+                          />
+                          <button 
+                            className="btn-primary" 
+                            onClick={() => handleSubmitFeedback(session.id)}
+                            disabled={busy || !feedbackInput[session.id]?.trim()}
+                          >
+                            Send Note
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
