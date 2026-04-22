@@ -87,6 +87,12 @@ class RealtimeLandmark(BaseModel):
     visibility: float = 1.0
 
 
+class DoctorFeedbackRequest(BaseModel):
+    patient_id: str
+    message: str = Field(min_length=1, max_length=2000)
+    category: str = Field(default="general")  # general, encouragement, correction, goal
+
+
 class RealtimeFrameMessage(BaseModel):
     type: Literal["landmark_frame"]
     frame_index: int | None = None
