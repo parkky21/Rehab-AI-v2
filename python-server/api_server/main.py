@@ -5,12 +5,14 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api_server.config import get_settings
 from api_server.database import mongo
-from api_server.routers import auth, doctor, exercises, patient, ws
-
+from api_server.routers import auth, doctor, exercises, patient, ws, ai_feedback
+from ml_scoring.ml_scorer import preload_models
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     await mongo.connect()
+    # Preload models to avoid lag on first session start
+    preload_models()
     yield
     await mongo.close()
 
@@ -32,6 +34,7 @@ api_router.include_router(exercises.router)
 api_router.include_router(doctor.router)
 api_router.include_router(patient.router)
 api_router.include_router(ws.router)
+api_router.include_router(ai_feedback.router)
 
 
 @api_router.get("/health")
