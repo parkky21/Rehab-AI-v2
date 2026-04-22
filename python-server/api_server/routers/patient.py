@@ -79,3 +79,16 @@ async def my_progress(
         "latest_progression": serialize_doc(latest_snapshot),
         "recent_sessions": sessions[-10:],
     }
+
+
+@router.get("/feedback")
+async def my_feedback(
+    patient: dict = Depends(require_role({"patient"})),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+) -> dict:
+    cursor = db.doctor_feedback.find(
+        {"patient_id": ObjectId(patient["id"])}
+    ).sort("created_at", -1).limit(50)
+    feedback_list = [serialize_doc(doc) async for doc in cursor]
+    return {"feedback": feedback_list}
+
