@@ -100,6 +100,20 @@ class Session:
             "avg_asymmetry_score": round(self.avg_asymmetry_score, 1),
             "duration_seconds": round((self.end_time or time.time()) - self.start_time, 1),
             "feedback_events": list(set(self.feedback_events)),
+            "reps": [
+                {
+                    "rep": r.rep_number,
+                    "rom_score": r.rom_score,
+                    "stability_score": r.stability_score,
+                    "tempo_score": r.tempo_score,
+                    "asymmetry_score": r.asymmetry_score,
+                    "final_score": r.final_score,
+                    "rom_value": round(r.rom_value, 1),
+                    "rep_time": round(r.rep_time, 2),
+                    "feedback": r.feedback,
+                }
+                for r in self.reps
+            ]
         }
 
     def to_json(self) -> str:
