@@ -8,6 +8,7 @@ from api_server.exercise_factory import list_exercises
 from api_server.schemas import (
     AssignmentCreateRequest,
     AssignmentResponse,
+    DoctorFeedbackRequest,
     PatientAssignmentStats,
     PatientLinkRequest,
     UserProfile,
@@ -318,3 +319,82 @@ async def get_patient_report(
         "latest_progression": serialize_doc(latest_snapshot),
         "recent_sessions": sessions[-10:],
     }
+
+
+@router.get("/patients/{patient_id}/sessions")
+async def get_patient_sessions(
+    patient_id: str,
+    doctor: dict = Depends(require_role({"doctor"})),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+) -> dict:
+    pid = to_object_id(patient_id, "patient_id")
+    await _assert_linked(db, doctor["id"], pid)
+
+    sessions = []
+    async for doc in db.sessions.find({"patient_id": pid}).sort("started_at", -1).limit(50):
+        sessions.append(serialize_doc(doc))
+        
+    return {"sessions": sessions}
+
+from pydantic import BaseModel
+class SessionFeedbackRequest(BaseModel):
+    doctor_feedback: str
+
+@router.post("/sessions/{session_id}/feedback")
+async def post_session_feedback(
+    session_id: str,
+    payload: SessionFeedbackRequest,
+    doctor: dict = Depends(require_role({"doctor"})),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+) -> dict:
+    sid = to_object_id(session_id, "session_id")
+    
+    session = await db.sessions.find_one({"_id": sid})
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    await _assert_linked(db, doctor["id"], session["patient_id"])
+    
+    await db.sessions.update_one(
+        {"_id": sid},
+        {"$set": {"doctor_feedback": payload.doctor_feedback}}
+    )
+    return {"status": "success", "message": "Feedback saved successfully"}
+
+@router.post("/patients/{patient_id}/feedback")
+async def post_feedback(
+    patient_id: str,
+    payload: DoctorFeedbackRequest,
+    doctor: dict = Depends(require_role({"doctor"})),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+) -> dict:
+    pid = to_object_id(patient_id, "patient_id")
+    await _assert_linked(db, doctor["id"], pid)
+
+    doctor_doc = await db.users.find_one({"_id": ObjectId(doctor["id"])})
+    doctor_name = doctor_doc.get("name", "Doctor") if doctor_doc else "Doctor"
+
+    feedback_doc = {
+        "doctor_id": ObjectId(doctor["id"]),
+        "doctor_name": doctor_name,
+        "patient_id": pid,
+        "message": payload.message,
+        "category": payload.category,
+        "created_at": utc_now(),
+    }
+    result = await db.doctor_feedback.insert_one(feedback_doc)
+    return {"status": "created", "feedback_id": str(result.inserted_id)}
+
+
+@router.get("/patients/{patient_id}/feedback")
+async def get_feedback(
+    patient_id: str,
+    doctor: dict = Depends(require_role({"doctor"})),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+) -> dict:
+    pid = to_object_id(patient_id, "patient_id")
+    await _assert_linked(db, doctor["id"], pid)
+
+    cursor = db.doctor_feedback.find({"patient_id": pid}).sort("created_at", -1).limit(50)
+    feedback_list = [serialize_doc(doc) async for doc in cursor]
+    return {"feedback": feedback_list}
