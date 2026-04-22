@@ -19,4 +19,6 @@ dependencies = [
     "scikit-learn>=1.4",
     "uvicorn>=0.35.0",
     "websockets>=16.0",
+    "google-genai>=1.73.1",
+    "openai>=2.32.0",
 ]
