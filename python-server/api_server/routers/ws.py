@@ -37,6 +37,15 @@ async def _authenticate_websocket(token: str | None, db: AsyncIOMotorDatabase) -
 
 @router.websocket("/ws/session")
 async def session_websocket(websocket: WebSocket) -> None:
+    try:
+        await _session_websocket_impl(websocket)
+    except Exception as e:
+        import traceback
+        with open("/tmp/ws_error.log", "w") as f:
+            f.write(traceback.format_exc())
+        raise
+
+async def _session_websocket_impl(websocket: WebSocket) -> None:
     db = get_db()
     token = websocket.query_params.get("token")
     assignment_id = websocket.query_params.get("assignment_id")
@@ -168,10 +177,13 @@ async def session_websocket(websocket: WebSocket) -> None:
                 }
             },
         )
-        await db.exercise_assignments.update_one(
-            {"_id": assignment["_id"]},
-            {"$set": {"status": "completed", "updated_at": utc_now()}},
-        )
+        
+        total_reps = summary.get("total_reps", 0)
+        if total_reps >= assignment["target_reps"]:
+            await db.exercise_assignments.update_one(
+                {"_id": assignment["_id"]},
+                {"$set": {"status": "completed", "updated_at": utc_now()}},
+            )
 
         score_docs = db.sessions.find(
             {
