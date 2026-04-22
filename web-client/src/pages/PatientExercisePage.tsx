@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { PoseLandmarker, FilesetResolver, NormalizedLandmark } from "@mediapipe/tasks-vision";
+import { PoseLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
 
 import { getPatientAssignments } from "../lib/api";
 import { useAuth } from "../lib/auth";
+import { useImmersive } from "../lib/ImmersiveContext";
 import type { Assignment, RepEvent } from "../lib/types";
 import { ScoreRing } from "../components/ScoreRing";
 import { RepCard, scoreClass } from "../components/RepCard";
@@ -17,6 +18,8 @@ const POSE_CONNECTIONS: Array<[number, number]> = [
 
 export function PatientExercisePage() {
   const { accessToken } = useAuth();
+  const { setImmersive } = useImmersive();
+
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<string>("");
   const [wsStatus, setWsStatus] = useState<"Disconnected" | "Connecting" | "Connected">("Disconnected");
@@ -41,6 +44,11 @@ export function PatientExercisePage() {
   // Session summary
   const [sessionEnded, setSessionEnded] = useState(false);
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
+  const [elapsedTime, setElapsedTime] = useState(0);
+
+  // UI state
+  const [repDrawerOpen, setRepDrawerOpen] = useState(false);
+  const [showControls, setShowControls] = useState(true);
 
   const gestureTimerRef = useRef<number | null>(null);
   const gestureCooldownRef = useRef<number>(0);
@@ -50,7 +58,8 @@ export function PatientExercisePage() {
   const wsRef = useRef<WebSocket | null>(null);
   const detectorRef = useRef<PoseLandmarker | null>(null);
   const rafRef = useRef<number | null>(null);
-  const repHistoryRef = useRef<HTMLDivElement | null>(null);
+  const lastVideoTickRef = useRef<number>(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -77,6 +86,59 @@ export function PatientExercisePage() {
     return () => { stopSession(false); };
   }, []);
 
+  // Session timer
+  useEffect(() => {
+    if (running && sessionStartTime) {
+      timerRef.current = setInterval(() => {
+        setElapsedTime(Math.floor((Date.now() - sessionStartTime) / 1000));
+      }, 1000);
+    } else {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    }
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [running, sessionStartTime]);
+
+  // Enter immersive when camera activates
+  useEffect(() => {
+    setImmersive(cameraActive);
+  }, [cameraActive, setImmersive]);
+
+  // Initialize camera stream after video element mounts
+  useEffect(() => {
+    if (!cameraActive || !videoRef.current) return;
+
+    let cancelled = false;
+
+    const initCamera = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        if (cancelled || !videoRef.current) return;
+
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+
+        await initDetector();
+        startLoop();
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Could not open camera");
+          setCameraActive(false);
+        }
+      }
+    };
+
+    void initCamera();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cameraActive]);
+
   async function initDetector() {
     if (detectorRef.current) return detectorRef.current;
     const vision = await FilesetResolver.forVisionTasks(
@@ -94,25 +156,13 @@ export function PatientExercisePage() {
     return detector;
   }
 
-  async function startCamera() {
-    if (!accessToken || !selectedAssignment || !videoRef.current) return;
+  function startCamera() {
+    if (!accessToken || !selectedAssignment) return;
 
     setError(null);
     setSessionEnded(false);
     setCameraActive(true);
-    setFeedback("Camera is ready. Bring your hands together to START tracking.");
-    
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-      videoRef.current.srcObject = stream;
-      await videoRef.current.play();
-
-      await initDetector();
-      startLoop();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not open camera");
-      setCameraActive(false);
-    }
+    setFeedback("Initializing camera...");
   }
 
   function startWsSession() {
@@ -133,6 +183,7 @@ export function PatientExercisePage() {
     setFeedback("Connecting to analysis server...");
     setWsStatus("Connecting");
     setSessionStartTime(Date.now());
+    setElapsedTime(0);
 
     try {
       const socket = new WebSocket(
@@ -149,10 +200,9 @@ export function PatientExercisePage() {
 
       socket.onclose = (event) => {
         setWsStatus("Disconnected");
-        if (event.code !== 1000) {
+        if (event.code !== 1000 && event.code !== 1005) {
           setError(`Connection closed (${event.code}). Start session again.`);
         }
-        stopLoop();
         setRunning(false);
       };
 
@@ -192,13 +242,6 @@ export function PatientExercisePage() {
             setFinalScore(re.scores.final_score);
             setSessionAvg(re.session_avg);
             setRepHistory((prev) => [...prev, re]);
-
-            setTimeout(() => {
-              repHistoryRef.current?.scrollTo({
-                left: repHistoryRef.current.scrollWidth,
-                behavior: "smooth",
-              });
-            }, 50);
           }
         }
       };
@@ -235,8 +278,8 @@ export function PatientExercisePage() {
         a.x * canvas.width, a.y * canvas.height,
         b.x * canvas.width, b.y * canvas.height
       );
-      gradient.addColorStop(0, "rgba(0, 212, 255, 0.8)");
-      gradient.addColorStop(1, "rgba(139, 92, 246, 0.8)");
+      gradient.addColorStop(0, "rgba(6, 182, 212, 0.8)");
+      gradient.addColorStop(1, "rgba(167, 139, 250, 0.8)");
       ctx.strokeStyle = gradient;
 
       ctx.beginPath();
@@ -247,7 +290,7 @@ export function PatientExercisePage() {
 
     for (let i = 0; i < landmarks.length; i++) {
       if (i < 11) continue;
-      
+
       const lm = landmarks[i];
       if ((lm.visibility ?? 1) < 0.35) continue;
       const px = lm.x * canvas.width;
@@ -255,7 +298,7 @@ export function PatientExercisePage() {
 
       ctx.beginPath();
       ctx.arc(px, py, 5, 0, Math.PI * 2);
-      ctx.fillStyle = "rgba(0, 212, 255, 0.9)";
+      ctx.fillStyle = "rgba(6, 182, 212, 0.9)";
       ctx.fill();
 
       ctx.beginPath();
@@ -268,20 +311,20 @@ export function PatientExercisePage() {
     if (gestureTimerRef.current && landmarks[15] && landmarks[16]) {
       const elapsed = Date.now() - gestureTimerRef.current;
       const progress = Math.min(elapsed / 1000, 1.0);
-      
+
       const dominantHand = landmarks[15].y < landmarks[16].y ? landmarks[15] : landmarks[16];
-      
+
       if (progress > 0) {
         ctx.beginPath();
         ctx.arc(dominantHand.x * canvas.width, dominantHand.y * canvas.height - 40, 20, -Math.PI / 2, (-Math.PI / 2) + (Math.PI * 2 * progress));
-        ctx.strokeStyle = "rgba(139, 92, 246, 0.9)";
+        ctx.strokeStyle = "rgba(167, 139, 250, 0.9)";
         ctx.lineWidth = 6;
         ctx.stroke();
-        
+
         ctx.fillStyle = "white";
         ctx.font = "12px sans-serif";
         ctx.textAlign = "center";
-        
+
         const isCurrentlyRunning = wsRef.current?.readyState === WebSocket.OPEN;
         ctx.fillText(isCurrentlyRunning ? "STOP" : "START", dominantHand.x * canvas.width, dominantHand.y * canvas.height - 36);
       }
@@ -293,349 +336,415 @@ export function PatientExercisePage() {
     const rWrist = lms[16];
     const lShoulder = lms[11];
     const rShoulder = lms[12];
-    
+
     if (!lWrist || !rWrist || !lShoulder || !rShoulder) return false;
     if ((lWrist.visibility ?? 1) < 0.6 || (rWrist.visibility ?? 1) < 0.6) return false;
-    
+
     const dist = (a: any, b: any) => Math.hypot(a.x - b.x, a.y - b.y);
     const wristDist = dist(lWrist, rWrist);
     const shoulderWidth = dist(lShoulder, rShoulder);
-    
-    // Check if wrists are very close to each other (less than ~35% of shoulder width)
+
     return shoulderWidth > 0 && (wristDist / shoulderWidth) < 0.35;
   };
 
   const loop = () => {
-    const video = videoRef.current;
-    if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-      rafRef.current = requestAnimationFrame(loop);
-      return;
-    }
+    try {
+      const video = videoRef.current;
+      if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+        rafRef.current = requestAnimationFrame(loop);
+        return;
+      }
 
-    const detector = detectorRef.current;
-    if (!detector) {
-      rafRef.current = requestAnimationFrame(loop);
-      return;
-    }
+      const detector = detectorRef.current;
+      if (!detector) {
+        rafRef.current = requestAnimationFrame(loop);
+        return;
+      }
 
-    const result = detector.detectForVideo(video, performance.now());
-    const landmarks = result.landmarks[0];
-    
-    if (landmarks && landmarks.length >= 33) {
-      drawOverlay(landmarks.slice(0, 33));
+      // Prevent identical timestamps to MediaPipe by ensuring strictly monotonically increasing times
+      let startTimeMs = performance.now();
+      if (lastVideoTickRef.current) {
+        if (startTimeMs <= lastVideoTickRef.current) {
+          startTimeMs = lastVideoTickRef.current + 1;
+        }
+      }
+      lastVideoTickRef.current = startTimeMs;
 
-      // Gesture Logic
-      const handsTogether = areHandsTogether(landmarks);
-      
-      if (handsTogether) {
-        if (Date.now() > gestureCooldownRef.current) {
-          if (!gestureTimerRef.current) gestureTimerRef.current = Date.now();
-          const elapsed = Date.now() - gestureTimerRef.current;
-          
-          if (elapsed >= 1000) {
-            // Trigger action!
-            if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-              startWsSession();
-            } else {
-              stopWsSession();
+      const result = detector.detectForVideo(video, startTimeMs);
+      const landmarks = result.landmarks[0];
+
+      if (landmarks && landmarks.length >= 33) {
+        drawOverlay(landmarks.slice(0, 33));
+
+        const handsTogether = areHandsTogether(landmarks);
+
+        if (handsTogether) {
+          if (Date.now() > gestureCooldownRef.current) {
+            if (!gestureTimerRef.current) gestureTimerRef.current = Date.now();
+            const elapsed = Date.now() - gestureTimerRef.current;
+
+            if (elapsed >= 1000) {
+              if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+                startWsSession();
+              } else {
+                stopWsSession();
+              }
+              gestureCooldownRef.current = Infinity;
+              gestureTimerRef.current = null;
             }
-            // Require user to separate hands to trigger again
-            gestureCooldownRef.current = Infinity;
-            gestureTimerRef.current = null;
           }
+        } else {
+          gestureTimerRef.current = null;
+          if (gestureCooldownRef.current === Infinity) {
+            gestureCooldownRef.current = Date.now() + 1000;
+          }
+        }
+
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(
+            JSON.stringify({
+              type: "landmark_frame",
+              timestamp_ms: Date.now(),
+              landmarks: landmarks.slice(0, 33).map((lm) => ({
+                x: lm.x,
+                y: lm.y,
+                z: lm.z,
+                visibility: lm.visibility ?? 1.0,
+              })),
+            })
+          );
         }
       } else {
         gestureTimerRef.current = null;
-        if (gestureCooldownRef.current === Infinity) {
-           // Provide a short 1 second delay after they separate their hands
-           gestureCooldownRef.current = Date.now() + 1000;
-        }
       }
-
-      // WebSocket streaming
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(
-          JSON.stringify({
-            type: "landmark_frame",
-            timestamp_ms: Date.now(),
-            landmarks: landmarks.slice(0, 33).map((lm) => ({
-              x: lm.x,
-              y: lm.y,
-              z: lm.z,
-              visibility: lm.visibility ?? 1,
-            })),
-          })
-        );
-      }
-    } else {
-      gestureTimerRef.current = null;
+    } catch (err) {
+      console.error("Error in render loop:", err);
     }
 
     rafRef.current = requestAnimationFrame(loop);
   };
 
   const startLoop = () => {
-    if (rafRef.current !== null) return;
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
     rafRef.current = requestAnimationFrame(loop);
   };
 
-  function stopLoop() {
-    if (rafRef.current != null) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    }
-  }
-
-  function stopWsSession() {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: "session_end" }));
-    }
-    wsRef.current?.close();
-    wsRef.current = null;
+  const stopLoop = () => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = null;
     
-    setRunning(false);
-    setWsStatus("Disconnected");
-    if (repCount > 0) {
-      setSessionEnded(true);
-    }
-    setFeedback("Session stopped. Start tracking again or turn camera off.");
-  }
-
-  function stopSession(sendEndSignal = true) {
-    if (sendEndSignal && wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: "session_end" }));
-    }
-    wsRef.current?.close();
-    wsRef.current = null;
-
-    stopLoop();
-
     const canvas = canvasRef.current;
     if (canvas) {
       const ctx = canvas.getContext("2d");
       ctx?.clearRect(0, 0, canvas.width, canvas.height);
     }
+  };
 
-    const stream = videoRef.current?.srcObject as MediaStream | null;
-    stream?.getTracks().forEach((track) => track.stop());
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
+  const stopWsSession = () => {
+    if (wsRef.current) {
+      if (wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: "session_end" }));
+      }
+      wsRef.current.close(1000, "User stopped session");
+      wsRef.current = null;
     }
-
     setRunning(false);
-    setCameraActive(false);
     setWsStatus("Disconnected");
     if (repCount > 0) {
       setSessionEnded(true);
     }
-  }
+  };
+
+  const stopSession = (save = true) => {
+    stopWsSession();
+    stopLoop();
+    if (videoRef.current?.srcObject) {
+      (videoRef.current.srcObject as MediaStream)
+        .getTracks()
+        .forEach((track) => track.stop());
+      videoRef.current.srcObject = null;
+    }
+    setCameraActive(false);
+    setRunning(false);
+    if (!save) {
+      setSessionEnded(false);
+    } else if (repCount > 0) {
+      setSessionEnded(true);
+    }
+  };
 
   // Derived
-  const swayPercent = Math.min(sway * 2000, 100); // scale for visual
+  const swayPercent = Math.min(sway * 2000, 100);
   const swayLevel = swayPercent < 33 ? "low" : swayPercent < 66 ? "mid" : "high";
 
   const stageClass =
     stage?.toLowerCase() === "up" ? "stage-up" :
     stage?.toLowerCase() === "down" ? "stage-down" : "stage-idle";
 
+  const formatTime = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${String(s).padStart(2, "0")}`;
+  };
+
   const sessionDuration = sessionStartTime
     ? Math.round((Date.now() - sessionStartTime) / 1000)
     : 0;
 
+  // ─── NON-IMMERSIVE: assignment selection screen ───
+  if (!cameraActive) {
+    return (
+      <div className="exercise-layout" id="exercise-page">
+        <div className="page-header">
+          <h1 className="page-title">Exercise Session</h1>
+          <p className="page-subtitle">Real-time AI-powered exercise analysis</p>
+        </div>
+
+        {error && <p className="error-text">{error}</p>}
+
+        <div className="exercise-dashboard-grid">
+          <div className="exercise-start-card glass-card glass-card-glow">
+            <div className="start-card-inner">
+              <div className="start-card-icon">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="23 7 16 12 23 17 23 7"/>
+                  <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+                </svg>
+              </div>
+              <h2 className="start-card-title">Ready to Begin?</h2>
+              <p className="start-card-desc">Select your assigned exercise and turn on the camera to start your AI-guided session.</p>
+
+              <div className="start-card-select">
+                <label className="start-card-label">Exercise Assignment</label>
+                <select
+                  value={selectedAssignmentId}
+                  onChange={(e) => setSelectedAssignmentId(e.target.value)}
+                >
+                  {assignments.length === 0 && <option value="">No assignments available</option>}
+                  {assignments.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.exercise_name} — {a.target_reps} reps
+                      {a.notes ? ` (${a.notes})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <button
+                className="btn-primary btn-lg"
+                disabled={!selectedAssignment}
+                onClick={startCamera}
+                id="start-camera-btn"
+                style={{ width: "100%", marginTop: "1rem" }}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="23 7 16 12 23 17 23 7"/>
+                  <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+                </svg>
+                Turn On Camera
+              </button>
+            </div>
+          </div>
+
+          {/* Right Column: Instructions */}
+          <div className="exercise-details-card glass-card">
+             <div className="details-header" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.25rem' }}>
+               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent-emerald)" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+               <h3 style={{ margin: 0 }}>How it Works</h3>
+             </div>
+             <div className="details-content" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+               <div className="detail-step" style={{ display: 'flex', gap: '1rem' }}>
+                 <div className="detail-step-num" style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'var(--accent-cyan-glow)', color: 'var(--accent-cyan)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', flexShrink: 0 }}>1</div>
+                 <div className="detail-step-text">
+                   <h4 style={{ margin: '0 0 0.25rem 0', fontSize: '0.95rem', color: 'var(--text-primary)' }}>Position yourself</h4>
+                   <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Ensure your full body is visible in the camera frame.</p>
+                 </div>
+               </div>
+               <div className="detail-step" style={{ display: 'flex', gap: '1rem' }}>
+                 <div className="detail-step-num" style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'var(--accent-cyan-glow)', color: 'var(--accent-cyan)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', flexShrink: 0 }}>2</div>
+                 <div className="detail-step-text">
+                   <h4 style={{ margin: '0 0 0.25rem 0', fontSize: '0.95rem', color: 'var(--text-primary)' }}>Hands together to Start</h4>
+                   <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Bring your hands together in front of you for 1 second to start or stop the tracker.</p>
+                 </div>
+               </div>
+               <div className="detail-step" style={{ display: 'flex', gap: '1rem' }}>
+                 <div className="detail-step-num" style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'var(--accent-cyan-glow)', color: 'var(--accent-cyan)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', flexShrink: 0 }}>3</div>
+                 <div className="detail-step-text">
+                   <h4 style={{ margin: '0 0 0.25rem 0', fontSize: '0.95rem', color: 'var(--text-primary)' }}>Follow AI Feedback</h4>
+                   <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Perform the exercise. The AI will track your Range of Motion, Stability, and Tempo.</p>
+                 </div>
+               </div>
+             </div>
+             
+             {selectedAssignment && selectedAssignment.notes && (
+               <div className="doctor-note-box" style={{ marginTop: '1.5rem', padding: '1rem', background: 'rgba(167, 139, 250, 0.08)', border: '1px solid rgba(167, 139, 250, 0.2)', borderRadius: 'var(--radius-md)' }}>
+                 <h4 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent-purple)', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                   Doctor's Note
+                 </h4>
+                 <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-primary)' }}>{selectedAssignment.notes}</p>
+               </div>
+             )}
+          </div>
+        </div>
+
+        {/* Session Summary (shown after ending) */}
+        {sessionEnded && !running && (
+          <div className="session-summary glass-card glass-card-glow">
+            <h2>Session Complete 🎉</h2>
+            <p style={{ color: "var(--text-secondary)", marginTop: "0.4rem" }}>
+              Great work! Here's your performance summary.
+            </p>
+            <div className="session-summary-grid">
+              <div className="summary-stat">
+                <span className="summary-stat-value">{repCount}</span>
+                <span className="summary-stat-label">Total Reps</span>
+              </div>
+              <div className="summary-stat">
+                <span className="summary-stat-value" style={{ color: "var(--accent-emerald)" }}>
+                  {sessionAvg > 0 ? sessionAvg : "--"}
+                </span>
+                <span className="summary-stat-label">Avg Score</span>
+              </div>
+              <div className="summary-stat">
+                <span className="summary-stat-value" style={{ color: "var(--accent-amber)" }}>
+                  {formatTime(sessionDuration)}
+                </span>
+                <span className="summary-stat-label">Duration</span>
+              </div>
+            </div>
+            {repHistory.length > 0 && (
+              <div className="summary-rep-history">
+                <h3 style={{ fontSize: "0.88rem", color: "var(--text-secondary)", marginBottom: "0.75rem" }}>Rep Breakdown</h3>
+                <div className="rep-history-scroll">
+                  {repHistory.map((rep, i) => (
+                    <RepCard key={i} rep={rep} />
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ─── IMMERSIVE MODE: fullscreen camera with HUD overlays ───
   return (
-    <div className="exercise-layout">
-      {/* Page Header */}
-      <div className="page-header">
-        <h1 className="page-title">Exercise Session</h1>
-        <p className="page-subtitle">Real-time AI-powered exercise analysis</p>
+    <div className="immersive-view" id="exercise-immersive">
+      {/* Camera Feed (fullscreen) */}
+      <div className="immersive-camera">
+        <video ref={videoRef} playsInline muted className="immersive-video" />
+        <canvas ref={canvasRef} className="immersive-canvas" />
       </div>
 
-      {/* Top Bar */}
-      <div className="exercise-topbar glass-card" style={{ padding: "0.85rem 1.1rem" }}>
-        <div className="exercise-selector">
+      {/* Top Bar Controls */}
+      <div className={`hud-top-bar ${showControls ? "" : "hud-hidden"}`}>
+        <div className="hud-top-left">
+          <div className={`hud-status-badge ${running ? "live" : "idle"}`}>
+            <span className={`status-dot ${wsStatus.toLowerCase()}`} />
+            {running ? "LIVE" : wsStatus}
+          </div>
+          {running && (
+            <div className="hud-timer">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              {formatTime(elapsedTime)}
+            </div>
+          )}
+        </div>
+
+        <div className="hud-top-center">
           <select
+            className="hud-select"
             value={selectedAssignmentId}
             onChange={(e) => setSelectedAssignmentId(e.target.value)}
             disabled={running}
           >
-            {assignments.length === 0 && <option value="">No assignments available</option>}
             {assignments.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.exercise_name} — {a.target_reps} reps
-                {a.notes ? ` (${a.notes})` : ""}
               </option>
             ))}
           </select>
         </div>
 
-        <div className="exercise-controls">
-          <div className={`status-badge ${running ? "live" : "idle"}`}>
-            <span className={`status-dot ${wsStatus.toLowerCase()}`} />
-            {wsStatus}
-          </div>
-
-          {!cameraActive ? (
-            <button
-              className="btn-primary"
-              disabled={!selectedAssignment}
-              onClick={startCamera}
-            >
-              ▶ Turn On Camera
-            </button>
-          ) : !running ? (
-             <>
-              <button className="btn-success" onClick={startWsSession}>
-                ▶ Start Tracking
+        <div className="hud-top-right">
+          {/* Controls */}
+          {!running ? (
+            <>
+              <button className="hud-btn hud-btn-primary" onClick={startWsSession}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                Start
               </button>
-              <button className="btn-danger" onClick={() => stopSession()} style={{marginLeft: '10px'}}>
-                ■ Turn Off
+              <button className="hud-btn hud-btn-danger" onClick={() => stopSession()}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+                Exit
               </button>
-             </>
+            </>
           ) : (
-            <button className="btn-danger" onClick={stopWsSession}>
-              ■ Stop Tracking
+            <button className="hud-btn hud-btn-danger" onClick={stopWsSession}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+              Stop
             </button>
           )}
         </div>
       </div>
 
-      {error && <p className="error-text">{error}</p>}
-
-      {/* Main 2-column layout */}
-      <div className="exercise-main">
-        {/* Left: Camera + Feedback */}
-        <div className="camera-section">
-          <div className={`camera-container ${cameraActive ? "active" : ""}`}>
-            {!cameraActive && (
-              <div className="camera-placeholder">
-                <span className="camera-placeholder-icon">📷</span>
-                <span>Camera feed will appear here</span>
-                <span style={{ fontSize: "0.78rem" }}>Select an assignment and click Turn On Camera</span>
-              </div>
-            )}
-            <video ref={videoRef} playsInline muted className="camera-view" />
-            <canvas ref={canvasRef} className="pose-overlay" />
-            {running && (
-              <div className="camera-badge">
-                <div className="status-badge live">
-                  <span className="status-dot connected" />
-                  LIVE
-                </div>
-              </div>
+      {/* Left HUD Panel — Transparent Stats Overlay */}
+      <div className={`hud-left-panel ${running ? "visible" : ""}`}>
+        {/* Rep Counter */}
+        <div className="hud-rep-counter">
+          <div className="hud-rep-display">
+            <span className="hud-rep-current">{repCount}</span>
+            {targetReps > 0 && (
+              <span className="hud-rep-target">/ {targetReps}</span>
             )}
           </div>
-
-          {/* Feedback Strip */}
-          <div className="feedback-strip">
-            <span className="feedback-icon">
-              {running ? "💬" : "ℹ️"}
-            </span>
-            <span className={`feedback-text ${running ? "highlight" : ""}`}>
-              {feedback}
-            </span>
+          <div className="hud-rep-label">REPS</div>
+          <div className={`hud-stage-badge ${stageClass}`}>
+            {stage || "-"}
           </div>
+        </div>
 
-          {/* Additional feedback rules */}
-          {feedbackRules.length > 1 && (
-            <div className="feedback-strip" style={{ borderLeft: "3px solid var(--accent-amber)" }}>
-              <span className="feedback-icon">⚠️</span>
-              <span className="feedback-text">{feedbackRules.slice(1).join(" • ")}</span>
-            </div>
+        {/* Score Rings */}
+        <div className="hud-scores">
+          <ScoreRing value={romScore} label="ROM" color="var(--accent-cyan)" compact />
+          <ScoreRing value={stabilityScore} label="Stability" color="var(--accent-emerald)" compact />
+          <ScoreRing value={tempoScore} label="Tempo" color="var(--accent-amber)" compact />
+        </div>
+
+        {/* Final Score */}
+        <div className="hud-final-score">
+          <span className="hud-final-label">SCORE</span>
+          <span className={`hud-final-value ${scoreClass(finalScore)}`}>
+            {finalScore > 0 ? finalScore : "--"}
+          </span>
+          {sessionAvg > 0 && (
+            <span className="hud-session-avg">avg {sessionAvg}</span>
           )}
         </div>
 
-        {/* Right: Metrics Panel */}
-        <div className="metrics-panel">
-          {/* Rep Counter */}
-          <div className="rep-counter-card glass-card">
-            <div className="rep-count-display">
-              <span className="rep-current">{repCount}</span>
-              {targetReps > 0 && (
-                <span className="rep-target">/ {targetReps}</span>
-              )}
-            </div>
-            <p className="rep-label">Repetitions</p>
-            <div className={`stage-badge ${stageClass}`} style={{ marginTop: "0.6rem" }}>
-              {stage || "-"}
-            </div>
+        {/* Sway */}
+        <div className="hud-sway">
+          <div className="hud-sway-header">
+            <span>SWAY</span>
+            <span className="hud-sway-val">{sway.toFixed(4)}</span>
           </div>
-
-          {/* Score Rings */}
-          <div className="score-rings-row">
-            <ScoreRing value={romScore} label="ROM" color="var(--accent-cyan)" size={76} />
-            <ScoreRing value={stabilityScore} label="Stability" color="var(--accent-emerald)" size={76} />
-            <ScoreRing value={tempoScore} label="Tempo" color="var(--accent-amber)" size={76} />
-          </div>
-
-          {/* Final Score */}
-          <div className="final-score-card glass-card">
-            <p className="final-score-label">Final Score</p>
-            <p className={`final-score-value ${scoreClass(finalScore)}`}>
-              {finalScore > 0 ? finalScore : "--"}
-            </p>
-            {sessionAvg > 0 && (
-              <p className="session-avg">Session Average: {sessionAvg}</p>
-            )}
-          </div>
-
-          {/* Sway Meter */}
-          <div className="sway-meter glass-card">
-            <div className="sway-label-row">
-              <span className="sway-label">Body Sway</span>
-              <span className="sway-value">{sway.toFixed(4)}</span>
-            </div>
-            <div className="sway-track">
-              <div
-                className={`sway-fill sway-${swayLevel}`}
-                style={{ width: `${swayPercent}%` }}
-              />
-            </div>
+          <div className="hud-sway-track">
+            <div
+              className={`hud-sway-fill sway-${swayLevel}`}
+              style={{ width: `${swayPercent}%` }}
+            />
           </div>
         </div>
       </div>
 
-      {/* Rep History */}
-      {repHistory.length > 0 && (
-        <div className="rep-history-section">
-          <div className="rep-history-header">
-            <span className="rep-history-title">Rep History</span>
-            <span style={{ fontSize: "0.78rem", color: "var(--text-dim)" }}>
-              {repHistory.length} rep{repHistory.length !== 1 ? "s" : ""} completed
-            </span>
-          </div>
-          <div className="rep-history-scroll" ref={repHistoryRef}>
-            {repHistory.map((rep, i) => (
-              <RepCard key={i} rep={rep} />
-            ))}
-          </div>
-        </div>
-      )}
 
-      {/* Session Summary (shown after ending) */}
-      {sessionEnded && !running && (
-        <div className="session-summary glass-card glass-card-glow">
-          <h2>Session Complete 🎉</h2>
-          <p style={{ color: "var(--text-secondary)", marginTop: "0.4rem" }}>
-            Great work! Here's your performance summary.
-          </p>
-          <div className="session-summary-grid">
-            <div className="summary-stat">
-              <span className="summary-stat-value">{repCount}</span>
-              <span className="summary-stat-label">Total Reps</span>
-            </div>
-            <div className="summary-stat">
-              <span className="summary-stat-value" style={{ color: "var(--accent-emerald)" }}>
-                {sessionAvg > 0 ? sessionAvg : "--"}
-              </span>
-              <span className="summary-stat-label">Avg Score</span>
-            </div>
-            <div className="summary-stat">
-              <span className="summary-stat-value" style={{ color: "var(--accent-amber)" }}>
-                {Math.floor(sessionDuration / 60)}:{String(sessionDuration % 60).padStart(2, "0")}
-              </span>
-              <span className="summary-stat-label">Duration</span>
-            </div>
-          </div>
+
+      {error && (
+        <div className="hud-error">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+          {error}
         </div>
       )}
     </div>
