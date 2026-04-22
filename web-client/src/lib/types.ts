@@ -50,6 +50,7 @@ export type SessionSummary = {
   avg_final_score: number;
   total_reps: number;
   duration_seconds: number;
+  reps?: any[];
 };
 
 export type SessionDoc = {
@@ -59,6 +60,7 @@ export type SessionDoc = {
   started_at: string;
   ended_at?: string;
   summary?: SessionSummary;
+  doctor_feedback?: string;
 };
 
 export type RepScores = {
