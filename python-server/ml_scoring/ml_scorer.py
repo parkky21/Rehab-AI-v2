@@ -59,6 +59,41 @@ def _load_norm_stats() -> tuple:
     return mean, std
 
 
+_MODEL_CACHE = {}
+
+def _get_model(model_name: str, device: torch.device):
+    if model_name not in _MODEL_CACHE:
+        ckpt_path = os.path.join(CKPT_DIR, f"{model_name}_best.pt")
+        build_fn = MODEL_BUILDERS[model_name]
+        model = build_fn(input_size=FEATURE_DIM)
+
+        if os.path.exists(ckpt_path):
+            model.load_state_dict(torch.load(ckpt_path, map_location=device, weights_only=True))
+            print(f"[MLRepScorer] Loaded {model_name} from {ckpt_path}")
+        else:
+            print(f"[MLRepScorer] WARNING: No checkpoint at {ckpt_path}. Using untrained model.")
+
+        model.to(device).eval()
+        _MODEL_CACHE[model_name] = model
+    return _MODEL_CACHE[model_name]
+
+
+def preload_models():
+    """Call this on server startup to avoid inference delay on the first session."""
+    if torch.cuda.is_available():
+        device = "cuda"
+    elif torch.backends.mps.is_available():
+        device = "mps"
+    else:
+        device = "cpu"
+    dev = torch.device(device)
+    
+    # Preload the default models
+    for name in ["lstm", "transformer"]:
+        if name in MODEL_BUILDERS:
+            _get_model(name, dev)
+
+
 class MLRepScorer:
     """
     Drop-in replacement for pipeline.scorer.RepScorer.
@@ -96,20 +131,8 @@ class MLRepScorer:
                 device = "cpu"
         self.device = torch.device(device)
 
-        # Load model
-        ckpt_path = os.path.join(CKPT_DIR, f"{model_name}_best.pt")
-        build_fn = MODEL_BUILDERS[model_name]
-        self.model = build_fn(input_size=FEATURE_DIM)
-
-        if os.path.exists(ckpt_path):
-            self.model.load_state_dict(
-                torch.load(ckpt_path, map_location=self.device, weights_only=True)
-            )
-            print(f"[MLRepScorer] Loaded {model_name} from {ckpt_path}")
-        else:
-            print(f"[MLRepScorer] WARNING: No checkpoint at {ckpt_path}. Using untrained model.")
-
-        self.model.to(self.device).eval()
+        # Load model using the cache
+        self.model = _get_model(model_name, self.device)
 
         # Normalization stats
         self.feat_mean, self.feat_std = _load_norm_stats()
