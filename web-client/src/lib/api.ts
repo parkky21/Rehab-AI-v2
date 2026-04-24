@@ -134,6 +134,9 @@ export async function createAssignment(
     patient_id: string;
     exercise_name: string;
     target_reps: number;
+    target_sets?: number;
+    rest_interval_seconds?: number;
+    protocol?: string;
     due_date?: string;
     notes?: string;
   }
@@ -252,4 +255,47 @@ export async function getPatientSessionAiFeedback(accessToken: string, sessionId
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   return parseJson<{ feedback: string }>(res);
+}
+
+export async function getPatientRecoveryScore(accessToken: string): Promise<any> {
+  const res = await fetch(`${API_BASE}/patient/recovery-score`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  return parseJson<any>(res);
+}
+
+export async function getPatientPainLogs(accessToken: string): Promise<any[]> {
+  const res = await fetch(`${API_BASE}/patient/pain-logs`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const body = await parseJson<{ pain_logs: any[] }>(res);
+  return body.pain_logs;
+}
+
+export async function postPatientPainLog(accessToken: string, score: number, location: string, notes: string): Promise<any> {
+  const res = await fetch(`${API_BASE}/patient/pain-logs`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ score, location, notes }),
+  });
+  return parseJson<any>(res);
+}
+
+export async function getPatientRoadmap(accessToken: string): Promise<any> {
+  const res = await fetch(`${API_BASE}/patient/roadmap`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const body = await parseJson<{ roadmap: any }>(res);
+  return body.roadmap;
+}
+
+export async function getDoctorPatientRecommendations(accessToken: string, patientId: string): Promise<any[]> {
+  const res = await fetch(`${API_BASE}/doctor/patients/${patientId}/recommendations`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const body = await parseJson<{ recommendations: any[] }>(res);
+  return body.recommendations;
 }

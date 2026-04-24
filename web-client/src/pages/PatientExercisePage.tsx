@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { PoseLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
 
-import { getPatientAssignments } from "../lib/api";
+import { getPatientAssignments, postPatientPainLog } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useImmersive } from "../lib/ImmersiveContext";
 import type { Assignment, RepEvent } from "../lib/types";
@@ -19,6 +20,7 @@ const POSE_CONNECTIONS: Array<[number, number]> = [
 export function PatientExercisePage() {
   const { accessToken } = useAuth();
   const { setImmersive } = useImmersive();
+  const navigate = useNavigate();
 
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<string>("");
@@ -27,6 +29,12 @@ export function PatientExercisePage() {
   const [feedbackRules, setFeedbackRules] = useState<string[]>([]);
   const [repCount, setRepCount] = useState(0);
   const [targetReps, setTargetReps] = useState(0);
+  const [currentSet, setCurrentSet] = useState(1);
+  const [targetSets, setTargetSets] = useState(1);
+  const [restIntervalSeconds, setRestIntervalSeconds] = useState(60);
+  const [isResting, setIsResting] = useState(false);
+  const [restTimeLeft, setRestTimeLeft] = useState(0);
+  const [jointAngles, setJointAngles] = useState<Record<string, number>>({});
   const [stage, setStage] = useState<string>("-");
   const [sway, setSway] = useState(0);
   const [running, setRunning] = useState(false);
@@ -40,6 +48,20 @@ export function PatientExercisePage() {
   const [finalScore, setFinalScore] = useState(0);
   const [sessionAvg, setSessionAvg] = useState(0);
   const [repHistory, setRepHistory] = useState<RepEvent[]>([]);
+
+  const [popup, setPopup] = useState<{title: string; sub?: string; duration?: number} | null>(null);
+  
+  const [showPainLogger, setShowPainLogger] = useState(false);
+  const [painScoreInput, setPainScoreInput] = useState(0);
+  const [painSubmitting, setPainSubmitting] = useState(false);
+
+  // Auto-dismiss popup
+  useEffect(() => {
+    if (popup && popup.duration) {
+      const t = setTimeout(() => setPopup(null), popup.duration);
+      return () => clearTimeout(t);
+    }
+  }, [popup]);
 
   // Session summary
   const [sessionEnded, setSessionEnded] = useState(false);
@@ -83,7 +105,10 @@ export function PatientExercisePage() {
   );
 
   useEffect(() => {
-    return () => { stopSession(false); };
+    return () => { 
+      stopSession(false);
+      setImmersive(false);
+    };
   }, []);
 
   // Session timer
@@ -102,6 +127,50 @@ export function PatientExercisePage() {
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [running, sessionStartTime]);
+
+  // Rest Timer & Set progression
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval>;
+    if (isResting && restTimeLeft > 0) {
+      interval = setInterval(() => {
+        setRestTimeLeft((prev) => {
+          if (prev <= 1) {
+            setIsResting(false);
+            setCurrentSet(c => c + 1);
+            setFeedback("Get Ready! Starting next set.");
+            setPopup({ title: "Get Ready!", sub: "Let's go!", duration: 3000 });
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [isResting, restTimeLeft]);
+
+  const displayReps = repCount - ((currentSet - 1) * targetReps);
+
+  useEffect(() => {
+    if (targetReps > 0 && displayReps >= targetReps && !isResting) {
+      if (currentSet < targetSets) {
+        setIsResting(true);
+        setRestTimeLeft(restIntervalSeconds);
+        setFeedback(`Set ${currentSet} complete! Resting...`);
+        setPopup({ title: "Rest Time", sub: "Take a breather.", duration: 3000 });
+      } else {
+        setFeedback("All sets completed! Finishing session...");
+        if (!sessionEnded && !popup) {
+          setPopup({ title: "Done Hooray!", sub: "Session fully complete. Great work!", duration: 4000 });
+          stopWsSession();
+          setTimeout(() => {
+            stopSession(true);
+            setImmersive(false);
+            setShowPainLogger(true);
+          }, 3500);
+        }
+      }
+    }
+  }, [displayReps, targetReps, isResting, currentSet, targetSets, restIntervalSeconds, sessionEnded, popup, navigate]);
 
   // Enter immersive when camera activates
   useEffect(() => {
@@ -171,6 +240,11 @@ export function PatientExercisePage() {
     setRunning(true);
     setRepCount(0);
     setTargetReps(selectedAssignment.target_reps);
+    setCurrentSet(1);
+    setTargetSets(1);
+    setIsResting(false);
+    setRestTimeLeft(0);
+    setJointAngles({});
     setStage("-");
     setSway(0);
     setRomScore(0);
@@ -223,6 +297,8 @@ export function PatientExercisePage() {
         if (data.type === "session_started") {
           setFeedback("Session started — keep posture stable.");
           setTargetReps(data.target_reps ?? 0);
+          setTargetSets(data.target_sets ?? 1);
+          setRestIntervalSeconds(data.rest_interval_seconds ?? 60);
           return;
         }
         if (data.type === "frame_feedback") {
@@ -523,8 +599,7 @@ export function PatientExercisePage() {
                   {assignments.length === 0 && <option value="">No assignments available</option>}
                   {assignments.map((a) => (
                     <option key={a.id} value={a.id}>
-                      {a.exercise_name} — {a.target_reps} reps
-                      {a.notes ? ` (${a.notes})` : ""}
+                      {a.exercise_name} — {a.target_reps} reps {a.doctor_name ? `(Assigned by Dr. ${a.doctor_name})` : ""}
                     </option>
                   ))}
                 </select>
@@ -623,6 +698,14 @@ export function PatientExercisePage() {
                 </div>
               </div>
             )}
+            
+            <button
+              className="btn-primary"
+              onClick={() => setShowPainLogger(true)}
+              style={{ width: "100%", marginTop: "2rem", padding: "1rem", fontSize: "1.1rem", background: "var(--accent-coral)", borderColor: "var(--accent-coral)" }}
+            >
+              Log Pain & Complete Session
+            </button>
           </div>
         )}
       </div>
@@ -692,18 +775,36 @@ export function PatientExercisePage() {
 
       {/* Left HUD Panel — Transparent Stats Overlay */}
       <div className={`hud-left-panel ${running ? "visible" : ""}`}>
+        {/* Set Dots */}
+        <div className="hud-sets" style={{ display: 'flex', gap: '8px', marginBottom: '1rem', justifyContent: 'center' }}>
+          {Array.from({ length: targetSets }).map((_, i) => (
+            <div key={i} style={{
+              width: '12px', height: '12px', borderRadius: '50%',
+              background: i + 1 < currentSet ? 'var(--accent-emerald)' : i + 1 === currentSet ? 'var(--accent-cyan)' : 'rgba(255,255,255,0.2)',
+              boxShadow: i + 1 === currentSet ? '0 0 10px var(--accent-cyan)' : 'none'
+            }} />
+          ))}
+        </div>
+
         {/* Rep Counter */}
         <div className="hud-rep-counter">
           <div className="hud-rep-display">
-            <span className="hud-rep-current">{repCount}</span>
-            {targetReps > 0 && (
+            <span className="hud-rep-current">{isResting ? "REST" : displayReps}</span>
+            {!isResting && targetReps > 0 && (
               <span className="hud-rep-target">/ {targetReps}</span>
             )}
           </div>
-          <div className="hud-rep-label">REPS</div>
-          <div className={`hud-stage-badge ${stageClass}`}>
-            {stage || "-"}
-          </div>
+          <div className="hud-rep-label">{isResting ? "TIMER" : "REPS"}</div>
+          {!isResting && (
+            <div className={`hud-stage-badge ${stageClass}`}>
+              {stage || "-"}
+            </div>
+          )}
+          {isResting && (
+            <div style={{ fontSize: '2rem', color: 'var(--accent-cyan)', fontWeight: 'bold', marginTop: '0.5rem' }}>
+              {formatTime(restTimeLeft)}
+            </div>
+          )}
         </div>
 
         {/* Score Rings */}
@@ -739,7 +840,78 @@ export function PatientExercisePage() {
         </div>
       </div>
 
+      {/* Fullscreen Animated Popups */}
+      {popup && (
+        <div style={{
+          position: "absolute", top: 0, left: 0, width: "100%", height: "100%",
+          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+          background: "rgba(0,0,0,0.5)", zIndex: 100, backdropFilter: "blur(4px)",
+          animation: "fadeIn 0.3s ease-out"
+        }}>
+          <div style={{
+            background: "rgba(30, 30, 40, 0.9)", border: "2px solid var(--accent-cyan)",
+            padding: "2rem 4rem", borderRadius: "24px", textAlign: "center",
+            boxShadow: "0 0 40px rgba(6, 182, 212, 0.4)",
+            animation: "popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275)"
+          }}>
+            <h1 style={{ fontSize: "3rem", margin: "0 0 0.5rem 0", color: "var(--accent-cyan)", textTransform: "uppercase", letterSpacing: "2px" }}>
+              {popup.title}
+            </h1>
+            {popup.sub && (
+              <p style={{ fontSize: "1.2rem", margin: 0, color: "var(--text-secondary)" }}>{popup.sub}</p>
+            )}
+          </div>
+          <style>{`
+            @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+            @keyframes popIn { 0% { transform: scale(0.5); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+          `}</style>
+        </div>
+      )}
 
+      {/* End of Session Pain Logger Modal */}
+      {showPainLogger && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, width: "100%", height: "100%",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          background: "rgba(0,0,0,0.85)", zIndex: 9999, backdropFilter: "blur(12px)",
+          animation: "fadeIn 0.3s ease-out"
+        }}>
+          <div className="glass-card" style={{ width: "90%", maxWidth: "450px", padding: "2.5rem", textAlign: "center", border: "1px solid rgba(255, 255, 255, 0.1)" }}>
+            <h2 style={{ color: "var(--accent-coral)", marginBottom: "0.5rem", fontSize: "1.8rem" }}>Session Complete! 🎉</h2>
+            <p style={{ color: "var(--text-secondary)", marginBottom: "2.5rem", fontSize: "1.1rem" }}>Please log your current pain level before continuing.</p>
+            
+            <div style={{ display: "flex", alignItems: "center", gap: "1.5rem", marginBottom: "2.5rem" }}>
+              <input 
+                type="range" 
+                min="0" max="10" 
+                value={painScoreInput} 
+                onChange={e => setPainScoreInput(Number(e.target.value))}
+                style={{ flex: 1, accentColor: "var(--accent-coral)", height: "8px" }}
+              />
+              <span style={{ fontSize: "2rem", fontWeight: "bold", color: "var(--text-primary)", width: "40px" }}>{painScoreInput}</span>
+            </div>
+            
+            <button 
+              className="btn-primary" 
+              onClick={async () => {
+                setPainSubmitting(true);
+                try {
+                  await postPatientPainLog(accessToken ?? "", painScoreInput, "General Session Pain", "Logged at end of session");
+                } catch (e) {
+                  console.error(e);
+                }
+                setPainSubmitting(false);
+                setShowPainLogger(false);
+                navigate("/patient/progress");
+              }}
+              disabled={painSubmitting}
+              style={{ width: "100%", background: "var(--accent-coral)", borderColor: "var(--accent-coral)", padding: "1rem", fontSize: "1.1rem", borderRadius: "12px", color: "#fff" }}
+            >
+              {painSubmitting ? "Saving..." : "Submit & View Progress"}
+            </button>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="hud-error">

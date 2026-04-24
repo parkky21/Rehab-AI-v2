@@ -9,7 +9,8 @@ import {
   linkPatient,
   searchDoctorPatients,
   getDoctorPatientSessions,
-  postSessionFeedback
+  postSessionFeedback,
+  getDoctorPatientRecommendations
 } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import type {
@@ -42,6 +43,9 @@ export function DoctorDashboardPage() {
   const [exercises, setExercises] = useState<ExerciseInfo[]>([]);
   const [selectedPatientId, setSelectedPatientId] = useState<string>("");
   const [targetReps, setTargetReps] = useState(10);
+  const [targetSets, setTargetSets] = useState(3);
+  const [restInterval, setRestInterval] = useState(60);
+  const [protocol, setProtocol] = useState("");
   const [exerciseName, setExerciseName] = useState("Squats");
   const [patientLookup, setPatientLookup] = useState("");
   const [selectedSearchPatient, setSelectedSearchPatient] = useState<PatientSearchResult | null>(null);
@@ -49,6 +53,7 @@ export function DoctorDashboardPage() {
   const [statsFilter, setStatsFilter] = useState("");
   const [assignmentStats, setAssignmentStats] = useState<PatientAssignmentStats[]>([]);
   const [report, setReport] = useState<any>(null);
+  const [recommendations, setRecommendations] = useState<any[]>([]);
   const [patientSessions, setPatientSessions] = useState<SessionDoc[]>([]);
   const [feedbackInput, setFeedbackInput] = useState<{ [key: string]: string }>({});
   const [busy, setBusy] = useState(false);
@@ -152,10 +157,14 @@ export function DoctorDashboardPage() {
         patient_id: selectedPatientId,
         exercise_name: exerciseName,
         target_reps: Number(targetReps),
+        target_sets: Number(targetSets),
+        rest_interval_seconds: Number(restInterval),
+        protocol: protocol.trim() || undefined,
       });
       const stats = await getDoctorPatientAssignmentStats(accessToken, statsFilter);
       setAssignmentStats(stats);
       setSuccess("Assignment created!");
+      setProtocol("");
       setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create assignment");
@@ -171,8 +180,10 @@ export function DoctorDashboardPage() {
     try {
       const res = await getDoctorReport(accessToken, selectedPatientId);
       const sessionsRes = await getDoctorPatientSessions(accessToken, selectedPatientId);
+      const recsRes = await getDoctorPatientRecommendations(accessToken, selectedPatientId).catch(() => []);
       setReport(res);
       setPatientSessions(sessionsRes);
+      setRecommendations(recsRes);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load report");
     } finally {
@@ -294,17 +305,47 @@ export function DoctorDashboardPage() {
               ))}
             </select>
           </label>
-          <label>
-            Target Reps
-            <input
-              type="number"
-              min={1}
-              max={200}
-              value={targetReps}
-              onChange={(e) => setTargetReps(Number(e.target.value))}
-            />
-          </label>
-          <button className="btn-primary" disabled={busy || !selectedPatient} type="submit">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            <label>
+              Target Reps
+              <input
+                type="number"
+                min={1} max={200}
+                value={targetReps}
+                onChange={(e) => setTargetReps(Number(e.target.value))}
+              />
+            </label>
+            <label>
+              Target Sets
+              <input
+                type="number"
+                min={1} max={20}
+                value={targetSets}
+                onChange={(e) => setTargetSets(Number(e.target.value))}
+              />
+            </label>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            <label>
+              Rest Interval (Secs)
+              <input
+                type="number"
+                min={0} max={300}
+                value={restInterval}
+                onChange={(e) => setRestInterval(Number(e.target.value))}
+              />
+            </label>
+            <label>
+              Clinical Protocol
+              <input
+                type="text"
+                placeholder="e.g. Post-ACL Phase 2"
+                value={protocol}
+                onChange={(e) => setProtocol(e.target.value)}
+              />
+            </label>
+          </div>
+          <button className="btn-primary" disabled={busy || !selectedPatient} type="submit" style={{ marginTop: '0.5rem' }}>
             Assign Exercise
           </button>
         </form>
@@ -335,6 +376,7 @@ export function DoctorDashboardPage() {
               <thead>
                 <tr>
                   <th>Patient</th>
+                  <th>Risk Status</th>
                   <th>Assigned</th>
                   <th>In Progress</th>
                   <th>Completed</th>
@@ -343,20 +385,40 @@ export function DoctorDashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {assignmentStats.map((row) => (
-                  <tr key={row.patient.id}>
-                    <td>
-                      <div>
-                        <div style={{ fontWeight: 500 }}>{row.patient.name}</div>
-                        <div style={{ fontSize: "0.78rem", color: "var(--text-dim)" }}>
-                          @{row.patient.username}
+                {assignmentStats.map((row) => {
+                  let triageColor = "var(--text-dim)";
+                  if (row.triage_status === "Critical") triageColor = "var(--accent-coral)";
+                  else if (row.triage_status === "At risk") triageColor = "var(--accent-amber)";
+                  else if (row.triage_status === "Excellent") triageColor = "var(--accent-emerald)";
+                  else if (row.triage_status === "Good") triageColor = "var(--accent-cyan)";
+                  
+                  return (
+                    <tr key={row.patient.id}>
+                      <td>
+                        <div>
+                          <div style={{ fontWeight: 500 }}>{row.patient.name}</div>
+                          <div style={{ fontSize: "0.78rem", color: "var(--text-dim)" }}>
+                            @{row.patient.username}
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td>{row.assigned_count}</td>
-                    <td>{row.in_progress_count}</td>
-                    <td style={{ color: "var(--accent-emerald)" }}>{row.completed_count}</td>
-                    <td style={{ fontWeight: 600 }}>{row.total_count}</td>
+                      </td>
+                      <td>
+                        <span style={{ 
+                          padding: "4px 8px", 
+                          borderRadius: "12px", 
+                          fontSize: "0.8rem", 
+                          background: `color-mix(in srgb, ${triageColor} 15%, transparent)`,
+                          color: triageColor,
+                          fontWeight: 600,
+                          border: `1px solid color-mix(in srgb, ${triageColor} 30%, transparent)`
+                        }}>
+                          {row.triage_status || "Unknown"}
+                        </span>
+                      </td>
+                      <td>{row.assigned_count}</td>
+                      <td>{row.in_progress_count}</td>
+                      <td style={{ color: "var(--accent-emerald)" }}>{row.completed_count}</td>
+                      <td style={{ fontWeight: 600 }}>{row.total_count}</td>
                     <td>
                       <button
                         className="table-btn"
@@ -369,7 +431,8 @@ export function DoctorDashboardPage() {
                       </button>
                     </td>
                   </tr>
-                ))}
+                );
+              })}
               </tbody>
             </table>
           </div>
@@ -450,6 +513,23 @@ export function DoctorDashboardPage() {
                   <div className="report-stat-value" style={{ fontSize: "0.92rem", textTransform: "capitalize" }}>
                     {report.latest_progression.decision.action} — {report.latest_progression.decision.reason}
                   </div>
+                </div>
+              </div>
+            )}
+            
+            {recommendations.length > 0 && (
+              <div style={{ marginTop: "2rem" }}>
+                <h3 style={{ marginBottom: "1rem", color: "var(--accent-emerald)", fontSize: "1.1rem", display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                  AI Recommendations
+                </h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
+                  {recommendations.map((rec, i) => (
+                    <div key={i} className="glass-card" style={{ background: "rgba(16, 185, 129, 0.05)", border: "1px solid rgba(16, 185, 129, 0.2)", padding: "1rem" }}>
+                      <h4 style={{ margin: "0 0 0.5rem 0", color: "var(--text-primary)", fontSize: "0.95rem" }}>{rec.title}</h4>
+                      <p style={{ margin: 0, color: "var(--text-secondary)", fontSize: "0.85rem", lineHeight: 1.5 }}>{rec.description}</p>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}

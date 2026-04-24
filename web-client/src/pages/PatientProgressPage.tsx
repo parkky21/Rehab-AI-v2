@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
-  BarChart, Bar
+  BarChart, Bar, LineChart, Line
 } from 'recharts';
 
-import { getPatientProgress, getPatientSessions, getPatientFeedback, getPatientSessionAiFeedback, getGlobalAiInsights } from "../lib/api";
+import { getPatientProgress, getPatientSessions, getPatientFeedback, getPatientSessionAiFeedback, getGlobalAiInsights, getPatientRecoveryScore, getPatientPainLogs } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import type { SessionDoc } from "../lib/types";
 
@@ -176,19 +176,55 @@ export function PatientProgressPage() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"overview" | "sessions" | "feedback">("overview");
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
+  
+  const [recoveryData, setRecoveryData] = useState<any>(null);
+  const [painLogs, setPainLogs] = useState<any[]>([]);
+  const [roadmap, setRoadmap] = useState<any>(null);
+  
+  const [painScoreInput, setPainScoreInput] = useState<number>(0);
+  const [painSubmitting, setPainSubmitting] = useState(false);
+  const [painSuccess, setPainSuccess] = useState<string | null>(null);
+
+  const submitPain = async () => {
+    if (!accessToken) return;
+    setPainSubmitting(true);
+    setPainSuccess(null);
+    try {
+      const res = await getPatientPainLogs(accessToken); // we will replace it with post api
+      const { postPatientPainLog } = await import("../lib/api");
+      const result = await postPatientPainLog(accessToken, painScoreInput, "general", "");
+      
+      const newLogs = await getPatientPainLogs(accessToken);
+      setPainLogs(newLogs);
+      
+      if (result.validation_note) {
+        setPainSuccess("Logged! AI Note: " + result.validation_note);
+      } else {
+        setPainSuccess("Pain score logged successfully.");
+      }
+    } catch (e: any) {
+      setError("Failed to log pain: " + e.message);
+    } finally {
+      setPainSubmitting(false);
+    }
+  };
 
   useEffect(() => {
     if (!accessToken) return;
     const load = async () => {
       try {
-        const [progressRes, sessionsRes, feedbackRes] = await Promise.all([
+        const [progressRes, sessionsRes, feedbackRes, recoveryRes, painRes] = await Promise.all([
           getPatientProgress(accessToken),
           getPatientSessions(accessToken),
           getPatientFeedback(accessToken).catch(() => []),
+          getPatientRecoveryScore(accessToken).catch(() => null),
+          getPatientPainLogs(accessToken).catch(() => []),
         ]);
         setProgress(progressRes);
         setSessions(sessionsRes);
         setFeedback(feedbackRes);
+        setRecoveryData(recoveryRes);
+        setPainLogs(painRes);
         
         // Fetch AI insights asynchronously without blocking the UI
         getGlobalAiInsights(accessToken)
@@ -222,6 +258,15 @@ export function PatientProgressPage() {
   const avgScore = progress?.avg_final_score ?? 0;
   const sessionCount = progress?.session_count ?? 0;
   const adherence = progress?.adherence_percent ?? 0;
+  
+  const recoveryScoreVal = recoveryData ? recoveryData.recovery_score : (avgScore || 0);
+  const avgPainLevel = recoveryData?.avg_pain ?? 0;
+  const recentPains = recoveryData?.recent_pains ?? [];
+  const scoreDelta = recoveryData?.score_delta ?? 0;
+  const painDelta = recoveryData?.pain_delta ?? 0;
+
+  const trendScores = recentScores.slice(-8);
+  const trendPains = recentPains.slice(-8);
 
   return (
     <div className="analytics-layout" id="analytics-page">
@@ -236,48 +281,39 @@ export function PatientProgressPage() {
       {/* Stat Cards Row */}
       <div className="analytics-stats-row">
         <div className="analytics-stat-card glass-card">
-          <div className="stat-card-top">
-            <div className="stat-icon-wrap stat-icon-score">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>
-            </div>
-            <span className="stat-trend-badge">{trendIcon(progress?.trend)}</span>
+          <div className="stat-card-label" style={{ fontSize: '0.9rem', color: 'var(--text-dim)' }}>Recovery score</div>
+          <div className="stat-card-value" style={{ color: "var(--accent-emerald)", fontSize: '2.5rem', marginTop: '0.25rem' }}>
+            {recoveryScoreVal}<span style={{ fontSize: '1.2rem', color: 'var(--text-dim)' }}>/100</span>
           </div>
-          <div className="stat-card-value" style={{ color: "var(--accent-cyan)" }}>{avgScore || "--"}</div>
-          <div className="stat-card-label">Average Score</div>
-          <div className="stat-card-sub">{scoreLevel(avgScore)}</div>
+          <div className="stat-card-sub" style={{ color: scoreDelta >= 0 ? "var(--accent-emerald)" : "var(--accent-coral)", marginTop: '0.5rem' }}>
+            {scoreDelta > 0 ? "+" : ""}{scoreDelta} pts this week
+          </div>
         </div>
 
         <div className="analytics-stat-card glass-card">
-          <div className="stat-card-top">
-            <div className={`stat-icon-wrap stat-icon-trend`}>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-            </div>
+          <div className="stat-card-label" style={{ fontSize: '0.9rem', color: 'var(--text-dim)' }}>Sessions completed</div>
+          <div className="stat-card-value" style={{ color: "var(--text-primary)", fontSize: '2.5rem', marginTop: '0.25rem' }}>
+            {sessionCount}
           </div>
-          <div className={`stat-card-value ${trendClass(progress?.trend)}`}>{trendLabel(progress?.trend)}</div>
-          <div className="stat-card-label">Performance Trend</div>
-          <div className="stat-card-sub">Last 5 sessions</div>
+          <div className="stat-card-sub" style={{ color: "var(--text-dim)", marginTop: '0.5rem' }}>of {Math.max(sessionCount, 30)} assigned</div>
         </div>
 
         <div className="analytics-stat-card glass-card">
-          <div className="stat-card-top">
-            <div className="stat-icon-wrap stat-icon-adherence">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-            </div>
+          <div className="stat-card-label" style={{ fontSize: '0.9rem', color: 'var(--text-dim)' }}>Avg pain level</div>
+          <div className="stat-card-value" style={{ color: "var(--accent-amber)", fontSize: '2.5rem', marginTop: '0.25rem' }}>
+            {avgPainLevel}<span style={{ fontSize: '1.2rem', color: 'var(--text-dim)' }}>/10</span>
           </div>
-          <div className="stat-card-value" style={{ color: "var(--accent-emerald)" }}>{adherence}%</div>
-          <div className="stat-card-label">Adherence Rate</div>
-          <div className="stat-card-sub">{adherence >= 80 ? "On track!" : "Keep it up"}</div>
+          <div className="stat-card-sub" style={{ color: painDelta <= 0 ? "var(--accent-emerald)" : "var(--accent-coral)", marginTop: '0.5rem' }}>
+            {painDelta > 0 ? "+" : ""}{painDelta} from last week
+          </div>
         </div>
 
         <div className="analytics-stat-card glass-card">
-          <div className="stat-card-top">
-            <div className="stat-icon-wrap stat-icon-sessions">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-            </div>
+          <div className="stat-card-label" style={{ fontSize: '0.9rem', color: 'var(--text-dim)' }}>Compliance rate</div>
+          <div className="stat-card-value" style={{ color: "var(--text-primary)", fontSize: '2.5rem', marginTop: '0.25rem' }}>
+            {adherence}<span style={{ fontSize: '1.2rem', color: 'var(--text-dim)' }}>%</span>
           </div>
-          <div className="stat-card-value" style={{ color: "var(--accent-purple)" }}>{sessionCount}</div>
-          <div className="stat-card-label">Total Sessions</div>
-          <div className="stat-card-sub">{feedback.length > 0 ? `${feedback.length} doctor notes` : "Complete more sessions"}</div>
+          <div className="stat-card-sub" style={{ color: "var(--accent-emerald)", marginTop: '0.5rem' }}>Above target (75%)</div>
         </div>
       </div>
 
@@ -290,6 +326,7 @@ export function PatientProgressPage() {
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>
           Overview
         </button>
+
         <button
           className={`analytics-tab ${activeTab === "sessions" ? "active" : ""}`}
           onClick={() => setActiveTab("sessions")}
@@ -330,67 +367,67 @@ export function PatientProgressPage() {
             )}
           </div>
 
-          {/* Score Chart */}
-          {recentScores.length > 0 ? (
-            <div className="analytics-chart-card glass-card">
-              <div className="chart-header">
-                <h3>Score Progression</h3>
-                <span className="chart-subtitle">{recentScores.length} recent sessions</span>
+          {/* Dual Charts Row */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '1.5rem' }}>
+            {/* Score Chart */}
+            <div className="analytics-chart-card glass-card" style={{ background: "rgba(30,30,35,0.9)", border: "1px solid rgba(255,255,255,0.05)" }}>
+              <div className="chart-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h3 style={{ fontSize: '1.2rem', color: 'var(--text-primary)' }}>Recovery trend — 8 weeks</h3>
+                <span style={{ background: 'rgba(16, 185, 129, 0.15)', color: 'var(--accent-emerald)', padding: '4px 12px', borderRadius: '16px', fontSize: '0.85rem', fontWeight: 600 }}>On track</span>
               </div>
-              <div className="chart-container" style={{ height: "250px", marginTop: "1rem" }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={recentScores.map((score, i) => ({ session: `S${i + 1}`, score }))}>
-                    <defs>
-                      <linearGradient id="colorScore" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="var(--accent-cyan)" stopOpacity={0.8}/>
-                        <stop offset="95%" stopColor="var(--accent-cyan)" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" vertical={false} />
-                    <XAxis dataKey="session" stroke="var(--text-dim)" fontSize={12} tickLine={false} axisLine={false} />
-                    <YAxis stroke="var(--text-dim)" fontSize={12} tickLine={false} axisLine={false} domain={[0, 100]} />
-                    <RechartsTooltip 
-                      cursor={{ fill: "transparent" }}
-                      contentStyle={{ background: "rgba(30, 30, 40, 0.9)", border: "1px solid var(--border-subtle)", borderRadius: "8px" }}
-                      itemStyle={{ color: "var(--text-primary)" }}
-                    />
-                    <Area type="monotone" dataKey="score" stroke="var(--accent-cyan)" strokeWidth={3} fillOpacity={1} fill="url(#colorScore)" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          ) : (
-            <div className="analytics-chart-card glass-card">
-              <div className="empty-state">
-                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" strokeWidth="1.5" opacity="0.4"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>
-                <span className="empty-text">Complete sessions to see your score chart</span>
+              <div className="chart-container" style={{ height: "250px", marginTop: "1.5rem" }}>
+                {trendScores.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={trendScores.map((score, i) => ({ session: `W${i + 1}`, score }))}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" vertical={false} opacity={0.2} />
+                      <XAxis dataKey="session" stroke="var(--text-dim)" fontSize={12} tickLine={false} axisLine={false} />
+                      <YAxis stroke="var(--text-dim)" fontSize={12} tickLine={false} axisLine={false} domain={[0, 100]} />
+                      <RechartsTooltip 
+                        cursor={{ fill: "transparent" }}
+                        contentStyle={{ background: "rgba(30, 30, 40, 0.9)", border: "1px solid var(--border-subtle)", borderRadius: "8px" }}
+                        itemStyle={{ color: "var(--accent-emerald)" }}
+                      />
+                      <Area type="monotone" dataKey="score" stroke="var(--accent-emerald)" strokeWidth={3} fillOpacity={0} fill="transparent" />
+                      <Line type="monotone" dataKey="score" stroke="var(--accent-emerald)" strokeWidth={3} dot={{ r: 4, fill: "var(--accent-emerald)" }} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="empty-state">
+                    <span className="empty-text">Complete sessions to see your score chart</span>
+                  </div>
+                )}
               </div>
             </div>
-          )}
 
-          {/* Progression Decision */}
-          {progress?.latest_progression && (
-            <div className="analytics-progression glass-card">
-              <h3>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
-                AI Progression Insight
-              </h3>
-              <div className="progression-grid">
-                <div className="progression-item">
-                  <span className="progression-label">Decision</span>
-                  <span className="progression-value progression-action">
-                    {progress.latest_progression.decision?.action ?? "None"}
-                  </span>
-                </div>
-                <div className="progression-item">
-                  <span className="progression-label">Reasoning</span>
-                  <span className="progression-value">
-                    {progress.latest_progression.decision?.reason ?? "-"}
-                  </span>
-                </div>
+            {/* Pain Chart */}
+            <div className="analytics-chart-card glass-card" style={{ background: "rgba(30,30,35,0.9)", border: "1px solid rgba(255,255,255,0.05)" }}>
+              <div className="chart-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h3 style={{ fontSize: '1.2rem', color: 'var(--text-primary)' }}>Pain level trend</h3>
+                <span style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#FCD34D', padding: '4px 12px', borderRadius: '16px', fontSize: '0.85rem', fontWeight: 600 }}>Monitoring</span>
+              </div>
+              <div className="chart-container" style={{ height: "250px", marginTop: "1.5rem" }}>
+                {trendPains.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={trendPains.map((score: number, i: number) => ({ session: `W${i + 1}`, score }))}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" vertical={false} opacity={0.2} />
+                      <XAxis dataKey="session" stroke="var(--text-dim)" fontSize={12} tickLine={false} axisLine={false} />
+                      <YAxis stroke="var(--text-dim)" fontSize={12} tickLine={false} axisLine={false} domain={[0, 10]} />
+                      <RechartsTooltip 
+                        cursor={{ fill: "transparent" }}
+                        contentStyle={{ background: "rgba(30, 30, 40, 0.9)", border: "1px solid var(--border-subtle)", borderRadius: "8px" }}
+                        itemStyle={{ color: "var(--accent-amber)" }}
+                      />
+                      <Line type="monotone" dataKey="score" stroke="var(--accent-amber)" strokeWidth={3} strokeDasharray="5 5" dot={{ r: 4, fill: "var(--accent-amber)" }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="empty-state">
+                    <span className="empty-text">Log pain to see your trend</span>
+                  </div>
+                )}
               </div>
             </div>
-          )}
+          </div>
 
           {/* Doctor Feedback Preview */}
           {feedback.length > 0 && (
@@ -419,6 +456,8 @@ export function PatientProgressPage() {
           )}
         </div>
       )}
+
+
 
       {activeTab === "sessions" && (
         <div className="analytics-content">

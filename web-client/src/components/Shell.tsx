@@ -1,16 +1,25 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 
 import { useAuth } from "../lib/auth";
 import { useImmersive } from "../lib/ImmersiveContext";
+import { getPatientAssignments } from "../lib/api";
 
 export function Shell() {
-  const { user, logout } = useAuth();
+  const { user, logout, accessToken } = useAuth();
   const { isImmersive, setImmersive } = useImmersive();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [hasAssignments, setHasAssignments] = useState(false);
 
   const initial = user?.name?.charAt(0).toUpperCase() ?? "?";
   const isDoctor = user?.role === "doctor";
+
+  useEffect(() => {
+    if (isDoctor || !accessToken) return;
+    getPatientAssignments(accessToken).then(res => {
+      setHasAssignments(res.length > 0);
+    }).catch(console.error);
+  }, [isDoctor, accessToken]);
 
   return (
     <div className={`app-shell ${isImmersive ? "immersive" : ""}`}>
@@ -68,6 +77,13 @@ export function Shell() {
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                 </span>
                 Exercise Session
+                {hasAssignments && (
+                  <span style={{
+                    width: "8px", height: "8px", background: "var(--accent-cyan)",
+                    borderRadius: "50%", marginLeft: "auto",
+                    boxShadow: "0 0 8px var(--accent-cyan)",
+                  }} />
+                )}
               </NavLink>
               <NavLink
                 to="/patient/progress"

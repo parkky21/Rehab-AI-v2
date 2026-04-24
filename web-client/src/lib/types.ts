@@ -25,6 +25,8 @@ export type PatientAssignmentStats = {
   in_progress_count: number;
   completed_count: number;
   total_count: number;
+  triage_status?: string;
+  risk_score?: number;
 };
 
 export type Assignment = {
@@ -33,10 +35,14 @@ export type Assignment = {
   doctor_id: string;
   exercise_name: string;
   target_reps: number;
+  target_sets?: number;
+  rest_interval_seconds?: number;
+  protocol?: string;
   due_date?: string | null;
   status: string;
   notes?: string | null;
   created_at: string;
+  doctor_name?: string;
 };
 
 export type ExerciseInfo = {
