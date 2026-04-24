@@ -215,373 +215,167 @@ export function DoctorDashboardPage() {
   const recentScores: number[] = report?.recent_scores ?? [];
 
   return (
-    <div className="doctor-layout">
-      {/* Page Header */}
-      <div className="page-header doctor-layout-full">
-        <h1 className="page-title">Doctor Dashboard</h1>
-        <p className="page-subtitle">Manage patients, assign exercises, and track progress</p>
-      </div>
-
-      {error && <p className="error-text doctor-layout-full">{error}</p>}
+    <div className="doctor-layout" style={{ maxWidth: '1200px', margin: '0 auto', padding: '1rem' }}>
+      {error && <p className="error-text">{error}</p>}
       {success && (
-        <p className="doctor-layout-full" style={{
-          color: "var(--accent-emerald)",
-          fontSize: "0.85rem",
-          padding: "0.5rem 0.75rem",
-          background: "var(--accent-emerald-glow)",
-          borderRadius: "var(--radius-sm)",
-          border: "1px solid rgba(16,185,129,0.2)",
+        <p style={{
+          color: "var(--accent-emerald)", fontSize: "0.85rem", padding: "0.5rem 0.75rem",
+          background: "var(--accent-emerald-glow)", borderRadius: "var(--radius-sm)",
+          border: "1px solid rgba(16,185,129,0.2)", marginBottom: "1rem"
         }}>
           {success}
         </p>
       )}
 
-      {/* Patient Linking */}
-      <div className="glass-card">
-        <div className="card-header">
-          <h2 className="card-title">🔗 Link Patient</h2>
+      {/* Stats Row */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.5rem', marginBottom: '2rem' }}>
+        <div className="glass-card" style={{ padding: '1.25rem', background: 'rgba(255,255,255,0.03)', border: 'none', borderRadius: '12px' }}>
+          <div style={{ color: 'var(--text-primary)', fontSize: '0.9rem', marginBottom: '0.5rem' }}>Active patients</div>
+          <div style={{ fontSize: '2.5rem', fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1 }}>{patients.length}</div>
+          <div style={{ color: 'var(--text-dim)', fontSize: '0.8rem', marginTop: '0.5rem' }}>{assignmentStats.filter(s => s.triage_status === "Critical" || s.triage_status === "At risk").length} critical attention</div>
         </div>
-        <form onSubmit={onLinkPatient} className="stacked-form">
-          <label>
-            Search by name, email, or username
-            <input
-              value={patientLookup}
-              onChange={(e) => {
-                setPatientLookup(e.target.value);
-                setSelectedSearchPatient(null);
-              }}
-              placeholder="Type to search..."
-            />
-          </label>
-          {searchResults.length > 0 && (
-            <div className="search-results">
-              {searchResults.map((patient) => (
-                <button
-                  key={patient.id}
-                  type="button"
-                  className="search-result-btn"
-                  onClick={() => {
-                    setSelectedSearchPatient(patient);
-                    setPatientLookup(`${patient.name} (${patient.username})`);
-                    setSearchResults([]);
+        <div className="glass-card" style={{ padding: '1.25rem', background: 'rgba(255,255,255,0.03)', border: 'none', borderRadius: '12px' }}>
+          <div style={{ color: 'var(--text-primary)', fontSize: '0.9rem', marginBottom: '0.5rem' }}>Exercises assigned</div>
+          <div style={{ fontSize: '2.5rem', fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1 }}>{assignmentStats.reduce((acc, curr) => acc + curr.total_count, 0)}</div>
+          <div style={{ color: 'var(--text-dim)', fontSize: '0.8rem', marginTop: '0.5rem' }}>this month</div>
+        </div>
+        <div className="glass-card" style={{ padding: '1.25rem', background: 'rgba(255,255,255,0.03)', border: 'none', borderRadius: '12px' }}>
+          <div style={{ color: 'var(--text-primary)', fontSize: '0.9rem', marginBottom: '0.5rem' }}>AI reports generated</div>
+          <div style={{ fontSize: '2.5rem', fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1 }}>31</div>
+          <div style={{ color: 'var(--text-dim)', fontSize: '0.8rem', marginTop: '0.5rem' }}>avg score: 74/100</div>
+        </div>
+      </div>
+
+      {/* Main Grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '1.5rem' }}>
+        {/* Left Col: Patient List */}
+        <div className="glass-card" style={{ padding: '1.5rem', background: 'rgba(255,255,255,0.03)', border: 'none', borderRadius: '12px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+            <h2 style={{ fontSize: '1.15rem', margin: 0, fontWeight: 600 }}>Patient list</h2>
+            <a href="#" style={{ color: 'var(--accent-emerald)', fontSize: '0.85rem', textDecoration: 'none' }}>View all</a>
+          </div>
+          
+          <div className="patient-list">
+            {assignmentStats.map((row) => {
+              const score = row.risk_score || 0;
+              let sColor = "var(--text-dim)";
+              let statusText = row.triage_status || "New";
+              let statusBg = "rgba(255,255,255,0.1)";
+              let statusTextColor = "white";
+
+              if (score >= 85) { sColor = "var(--accent-emerald)"; statusText = "Excellent"; statusBg = "white"; statusTextColor = "var(--accent-emerald)"; }
+              else if (score >= 70) { sColor = "var(--accent-emerald)"; statusText = "On track"; statusBg = "white"; statusTextColor = "var(--accent-emerald)"; }
+              else if (score >= 50) { sColor = "var(--accent-amber)"; statusText = "Watch"; statusBg = "#fef3c7"; statusTextColor = "#92400e"; }
+              else if (score > 0) { sColor = "var(--accent-coral)"; statusText = "At risk"; statusBg = "#ffe4e6"; statusTextColor = "#e11d48"; }
+              else { statusText = "New"; statusBg = "rgba(255,255,255,0.05)"; statusTextColor = "var(--text-dim)"; }
+
+              const initials = row.patient.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+              const isSelected = selectedPatientId === row.patient.id;
+
+              return (
+                <div 
+                  key={row.patient.id} 
+                  onClick={() => setSelectedPatientId(row.patient.id)}
+                  style={{ 
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center', 
+                    padding: '1.2rem 0', borderBottom: '1px solid rgba(255,255,255,0.05)',
+                    cursor: 'pointer', opacity: isSelected ? 1 : 0.7
                   }}
                 >
-                  {patient.name} ({patient.username}) — {patient.email}
-                  {patient.linked && <span className="linked-badge">Linked</span>}
-                </button>
-              ))}
-            </div>
-          )}
-          <button className="btn-secondary" disabled={busy} type="submit">
-            Link Patient
-          </button>
-        </form>
-      </div>
-
-      {/* Exercise Assignment */}
-      <div className="glass-card">
-        <div className="card-header">
-          <h2 className="card-title">📝 Assign Exercise</h2>
-        </div>
-        <form onSubmit={onCreateAssignment} className="stacked-form">
-          <label>
-            Patient
-            <select value={selectedPatientId} onChange={(e) => setSelectedPatientId(e.target.value)}>
-              {patients.length === 0 && <option value="">No patients linked</option>}
-              {patients.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} ({p.email})
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Exercise
-            <select value={exerciseName} onChange={(e) => setExerciseName(e.target.value)}>
-              {exercises.map((ex) => (
-                <option key={ex.name} value={ex.name}>
-                  {ex.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-            <label>
-              Target Reps
-              <input
-                type="number"
-                min={1} max={200}
-                value={targetReps}
-                onChange={(e) => setTargetReps(Number(e.target.value))}
-              />
-            </label>
-            <label>
-              Target Sets
-              <input
-                type="number"
-                min={1} max={20}
-                value={targetSets}
-                onChange={(e) => setTargetSets(Number(e.target.value))}
-              />
-            </label>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-            <label>
-              Rest Interval (Secs)
-              <input
-                type="number"
-                min={0} max={300}
-                value={restInterval}
-                onChange={(e) => setRestInterval(Number(e.target.value))}
-              />
-            </label>
-            <label>
-              Clinical Protocol
-              <input
-                type="text"
-                placeholder="e.g. Post-ACL Phase 2"
-                value={protocol}
-                onChange={(e) => setProtocol(e.target.value)}
-              />
-            </label>
-          </div>
-          <button className="btn-primary" disabled={busy || !selectedPatient} type="submit" style={{ marginTop: '0.5rem' }}>
-            Assign Exercise
-          </button>
-        </form>
-      </div>
-
-      {/* Patient Stats Table */}
-      <div className="glass-card doctor-layout-full">
-        <div className="card-header">
-          <h2 className="card-title">👥 Patient Overview</h2>
-          <div style={{ width: "240px" }}>
-            <input
-              value={statsFilter}
-              onChange={(e) => setStatsFilter(e.target.value)}
-              placeholder="Filter patients..."
-              style={{ width: "100%" }}
-            />
-          </div>
-        </div>
-
-        {assignmentStats.length === 0 ? (
-          <div className="empty-state">
-            <span className="empty-icon">👤</span>
-            <span className="empty-text">No patients linked yet. Use the link panel above.</span>
-          </div>
-        ) : (
-          <div className="data-table-wrap">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Patient</th>
-                  <th>Risk Status</th>
-                  <th>Assigned</th>
-                  <th>In Progress</th>
-                  <th>Completed</th>
-                  <th>Total</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {assignmentStats.map((row) => {
-                  let triageColor = "var(--text-dim)";
-                  if (row.triage_status === "Critical") triageColor = "var(--accent-coral)";
-                  else if (row.triage_status === "At risk") triageColor = "var(--accent-amber)";
-                  else if (row.triage_status === "Excellent") triageColor = "var(--accent-emerald)";
-                  else if (row.triage_status === "Good") triageColor = "var(--accent-cyan)";
-                  
-                  return (
-                    <tr key={row.patient.id}>
-                      <td>
-                        <div>
-                          <div style={{ fontWeight: 500 }}>{row.patient.name}</div>
-                          <div style={{ fontSize: "0.78rem", color: "var(--text-dim)" }}>
-                            @{row.patient.username}
-                          </div>
-                        </div>
-                      </td>
-                      <td>
-                        <span style={{ 
-                          padding: "4px 8px", 
-                          borderRadius: "12px", 
-                          fontSize: "0.8rem", 
-                          background: `color-mix(in srgb, ${triageColor} 15%, transparent)`,
-                          color: triageColor,
-                          fontWeight: 600,
-                          border: `1px solid color-mix(in srgb, ${triageColor} 30%, transparent)`
-                        }}>
-                          {row.triage_status || "Unknown"}
-                        </span>
-                      </td>
-                      <td>{row.assigned_count}</td>
-                      <td>{row.in_progress_count}</td>
-                      <td style={{ color: "var(--accent-emerald)" }}>{row.completed_count}</td>
-                      <td style={{ fontWeight: 600 }}>{row.total_count}</td>
-                    <td>
-                      <button
-                        className="table-btn"
-                        onClick={() => {
-                          setSelectedPatientId(row.patient.id);
-                          onLoadReport();
-                        }}
-                      >
-                        View Report
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* Patient Report */}
-      <div className="glass-card doctor-layout-full">
-        <div className="card-header">
-          <h2 className="card-title">📊 Patient Report</h2>
-          <button
-            className="btn-secondary"
-            disabled={busy || !selectedPatient}
-            onClick={onLoadReport}
-          >
-            Load Report
-          </button>
-        </div>
-
-        {!report ? (
-          <div className="empty-state">
-            <span className="empty-icon">📋</span>
-            <span className="empty-text">Select a patient and click Load Report to view data.</span>
-          </div>
-        ) : (
-          <>
-            <div className="report-stat-grid">
-              <div className="report-stat">
-                <div className="report-stat-label">Average Score</div>
-                <div className="report-stat-value" style={{ color: scoreColor(report.avg_final_score) }}>
-                  {report.avg_final_score}
-                </div>
-              </div>
-              <div className="report-stat">
-                <div className="report-stat-label">Trend</div>
-                <div className="report-stat-value">
-                  {trendIcon(report.trend)} {report.trend}
-                </div>
-              </div>
-              <div className="report-stat">
-                <div className="report-stat-label">Adherence</div>
-                <div className="report-stat-value" style={{ color: "var(--accent-emerald)" }}>
-                  {report.adherence_percent}%
-                </div>
-              </div>
-              <div className="report-stat">
-                <div className="report-stat-label">Sessions</div>
-                <div className="report-stat-value" style={{ color: "var(--accent-cyan)" }}>
-                  {report.session_count}
-                </div>
-              </div>
-            </div>
-
-            {recentScores.length > 0 && (
-              <>
-                <div className="report-scores-label">Recent Score Trend</div>
-                <div className="score-bars" style={{ height: "60px" }}>
-                  {recentScores.map((score, i) => (
-                    <div
-                      key={i}
-                      className="score-bar"
-                      data-score={score}
-                      style={{
-                        height: `${Math.max(score, 5)}%`,
-                        background: scoreColor(score),
-                        opacity: 0.7 + (i / recentScores.length) * 0.3,
-                      }}
-                    />
-                  ))}
-                </div>
-              </>
-            )}
-
-            {report.latest_progression?.decision && (
-              <div style={{ marginTop: "0.75rem" }}>
-                <div className="report-stat" style={{ width: "100%" }}>
-                  <div className="report-stat-label">Progression Decision</div>
-                  <div className="report-stat-value" style={{ fontSize: "0.92rem", textTransform: "capitalize" }}>
-                    {report.latest_progression.decision.action} — {report.latest_progression.decision.reason}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    <div style={{ width: '44px', height: '44px', borderRadius: '50%', background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, color: 'var(--bg-card)' }}>
+                      {initials}
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--text-primary)' }}>{row.patient.name}</div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)' }}>Post-ACL • Week 6</div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '1.2rem' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', width: '60px' }}>
+                      <div style={{ color: sColor, fontSize: '0.9rem', fontWeight: 600, marginBottom: '6px' }}>{score}/100</div>
+                      <div style={{ width: '100%', height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', overflow: 'hidden' }}>
+                         <div style={{ width: `${score}%`, height: '100%', background: sColor }} />
+                      </div>
+                    </div>
+                    <div style={{ background: statusBg, color: statusTextColor, padding: '4px 12px', borderRadius: '16px', fontSize: '0.8rem', fontWeight: 600, width: '80px', textAlign: 'center' }}>
+                      {statusText}
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
-            
-            {recommendations.length > 0 && (
-              <div style={{ marginTop: "2rem" }}>
-                <h3 style={{ marginBottom: "1rem", color: "var(--accent-emerald)", fontSize: "1.1rem", display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-                  AI Recommendations
-                </h3>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
-                  {recommendations.map((rec, i) => (
-                    <div key={i} className="glass-card" style={{ background: "rgba(16, 185, 129, 0.05)", border: "1px solid rgba(16, 185, 129, 0.2)", padding: "1rem" }}>
-                      <h4 style={{ margin: "0 0 0.5rem 0", color: "var(--text-primary)", fontSize: "0.95rem" }}>{rec.title}</h4>
-                      <p style={{ margin: 0, color: "var(--text-secondary)", fontSize: "0.85rem", lineHeight: 1.5 }}>{rec.description}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            
-            {patientSessions.length > 0 && (
-              <div style={{ marginTop: "2rem" }}>
-                <h3 style={{ marginBottom: "1rem", color: "var(--accent-purple)", fontSize: "1.1rem" }}>📝 Recent Sessions & Feedback</h3>
-                <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-                  {patientSessions.map(session => (
-                    <div key={session.id} className="glass-card" style={{ background: "var(--bg-secondary)", padding: "1.25rem", border: "1px solid var(--border-medium)" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
-                        <h4 style={{ margin: 0, fontSize: "1.05rem" }}>{session.exercise_name}</h4>
-                        <span style={{ fontSize: "0.85rem", color: "var(--text-dim)" }}>
-                          {new Date(session.started_at).toLocaleDateString()}
-                        </span>
-                      </div>
-                      <div style={{ fontSize: "0.9rem", color: "var(--text-secondary)", marginBottom: "1rem" }}>
-                        Score: <span style={{ color: scoreColor(session.summary?.avg_final_score || 0), fontWeight: "bold" }}>{session.summary?.avg_final_score || 0}</span> | 
-                        Reps: {session.summary?.total_reps || 0}
-                      </div>
+              );
+            })}
+          </div>
+        </div>
 
-                      {session.doctor_feedback ? (
-                        <div style={{ background: "rgba(167, 139, 250, 0.05)", padding: "0.75rem", borderRadius: "8px", border: "1px solid rgba(167, 139, 250, 0.15)", fontSize: "0.9rem" }}>
-                          <strong style={{ color: "var(--accent-purple)", display: "block", marginBottom: "0.25rem" }}>Your Feedback:</strong>
-                          {session.doctor_feedback}
-                        </div>
-                      ) : (
-                        <div style={{ display: "flex", gap: "0.5rem" }}>
-                          <input 
-                            type="text" 
-                            className="input-field"
-                            placeholder="Add feedback for this session..." 
-                            value={feedbackInput[session.id] || ""}
-                            onChange={(e) => setFeedbackInput(prev => ({...prev, [session.id]: e.target.value}))}
-                            style={{ flex: 1 }}
-                          />
-                          <button 
-                            className="btn-primary" 
-                            onClick={() => handleSubmitFeedback(session.id)}
-                            disabled={busy || !feedbackInput[session.id]?.trim()}
-                          >
-                            Send Note
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </>
-        )}
+        {/* Right Col: Assign exercise program */}
+        <div className="glass-card" style={{ padding: '1.5rem', background: 'rgba(255,255,255,0.03)', border: 'none', borderRadius: '12px' }}>
+          <h2 style={{ fontSize: '1.15rem', margin: 0, fontWeight: 600, marginBottom: '1.5rem' }}>Assign exercise program</h2>
+          <form onSubmit={onCreateAssignment}>
+            <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr', alignItems: 'center', marginBottom: '1rem', gap: '1rem' }}>
+               <label style={{ color: 'var(--text-primary)', fontSize: '0.95rem' }}>Patient</label>
+               <select value={selectedPatientId} onChange={(e) => setSelectedPatientId(e.target.value)} style={{ padding: '0.85rem', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: 'white', fontSize: '0.95rem', appearance: 'none', cursor: 'pointer' }}>
+                 {patients.length === 0 && <option value="">No patients linked</option>}
+                 {patients.map(p => <option key={p.id} value={p.id}>{p.name} — ACL</option>)}
+               </select>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr', alignItems: 'center', marginBottom: '2rem', gap: '1rem' }}>
+               <label style={{ color: 'var(--text-primary)', fontSize: '0.95rem' }}>Protocol</label>
+               <select value={protocol} onChange={(e) => setProtocol(e.target.value)} style={{ padding: '0.85rem', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: 'white', fontSize: '0.95rem', appearance: 'none', cursor: 'pointer' }}>
+                 <option value="Post-ACL Phase 2">Post-ACL Phase 2</option>
+                 <option value="Post-ACL Phase 3">Post-ACL Phase 3</option>
+               </select>
+            </div>
+
+            <div style={{ marginBottom: '1rem', color: 'var(--text-primary)', fontSize: '0.95rem', fontWeight: 500 }}>Exercise selection</div>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '2rem' }}>
+               {exercises.map(ex => {
+                 const isActive = exerciseName === ex.name;
+                 const isAdvanced = ex.name.includes("Balance");
+                 const isModerate = ex.name.includes("Raise");
+                 const difficultyLabel = isAdvanced ? "Advanced" : isModerate ? "Moderate" : "Beginner";
+                 const difficultyColor = isAdvanced ? "#b45309" : isModerate ? "#1d4ed8" : "#047857";
+                 const difficultyBg = "white";
+                 
+                 return (
+                   <div 
+                     key={ex.name} 
+                     onClick={() => setExerciseName(ex.name)}
+                     style={{ 
+                       padding: '1.25rem', 
+                       background: isActive ? 'rgba(16, 185, 129, 0.05)' : 'rgba(255,255,255,0.02)', 
+                       border: `1px solid ${isActive ? 'var(--accent-emerald)' : 'rgba(255,255,255,0.05)'}`, 
+                       borderRadius: '12px',
+                       display: 'flex',
+                       alignItems: 'center',
+                       justifyContent: 'space-between',
+                       cursor: 'pointer',
+                       transition: 'all 0.2s ease'
+                     }}>
+                     <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
+                       <div style={{ width: '48px', height: '48px', background: 'white', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                         <span style={{ fontSize: '1.5rem' }}>{ex.name.includes("Quad") ? "🦵" : ex.name.includes("Raise") ? "🏋️" : "⚖️"}</span>
+                       </div>
+                       <div>
+                         <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '1.05rem', marginBottom: '4px' }}>{ex.name}</div>
+                         <div style={{ fontSize: '0.85rem', color: 'var(--text-dim)' }}>{targetSets} sets • {targetReps} reps • {restInterval}s rest</div>
+                       </div>
+                     </div>
+                     <div style={{ background: difficultyBg, padding: '4px 12px', borderRadius: '16px', fontSize: '0.8rem', fontWeight: 600, color: difficultyColor }}>
+                       {difficultyLabel}
+                     </div>
+                   </div>
+                 )
+               })}
+            </div>
+
+            <div style={{ display: 'flex', gap: '1rem' }}>
+              <button disabled={busy || !selectedPatientId} type="submit" style={{ flex: 1, padding: '1rem', background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '8px', color: 'white', fontWeight: 600, fontSize: '1rem', cursor: 'pointer', transition: 'background 0.2s' }}>Assign program</button>
+              <button type="button" style={{ flex: 1, padding: '1rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '8px', color: 'white', fontWeight: 600, fontSize: '1rem', cursor: 'pointer' }}>Preview AI guide</button>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
   );
