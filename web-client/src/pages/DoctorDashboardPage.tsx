@@ -7,6 +7,7 @@ import {
   getDoctorPatientAssignments,
   getDoctorPatients,
   getDoctorReport,
+  getDoctorSessionAiFeedback,
   getExercises,
   linkPatient,
   searchDoctorPatients,
@@ -63,6 +64,9 @@ export function DoctorDashboardPage() {
   const [patientAssignments, setPatientAssignments] = useState<Assignment[]>([]);
   const [editingAssignmentId, setEditingAssignmentId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<{ target_sets: number; target_reps: number; rest_interval_seconds: number }>({ target_sets: 3, target_reps: 10, rest_interval_seconds: 60 });
+  const [reportModal, setReportModal] = useState<{ assignment: Assignment; sessions: SessionDoc[]; aiFeedback: { [sid: string]: string } } | null>(null);
+  const [reportFeedbackInput, setReportFeedbackInput] = useState<{ [sid: string]: string }>({});
+  const [loadingAi, setLoadingAi] = useState<{ [sid: string]: boolean }>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -409,23 +413,43 @@ export function DoctorDashboardPage() {
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                   <span style={{ fontSize: '0.68rem', fontWeight: 600, color: sc, background: `${sc}15`, padding: '2px 8px', borderRadius: '8px' }}>{sl}</span>
-                                  <button type="button" title="Edit" onClick={(e) => { e.stopPropagation(); setEditingAssignmentId(a.id); setEditForm({ target_sets: a.target_sets ?? 3, target_reps: a.target_reps, rest_interval_seconds: a.rest_interval_seconds ?? 60 }); }} style={{ background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', padding: '2px 4px', fontSize: '0.8rem' }}>✏️</button>
-                                  <button type="button" title="Delete" onClick={async (e) => {
-                                    e.stopPropagation();
-                                    if (!accessToken || !confirm(`Remove ${a.exercise_name}?`)) return;
-                                    setBusy(true);
-                                    try {
-                                      await deleteAssignment(accessToken, a.id);
-                                      const updated = await getDoctorPatientAssignments(accessToken, selectedPatientId);
-                                      setPatientAssignments(updated);
-                                      const stats = await getDoctorPatientAssignmentStats(accessToken);
-                                      setAssignmentStats(stats);
-                                      setSuccess('Assignment removed');
-                                      setTimeout(() => setSuccess(null), 3000);
-                                    } catch (err) {
-                                      setError(err instanceof Error ? err.message : 'Delete failed');
-                                    } finally { setBusy(false); }
-                                  }} style={{ background: 'none', border: 'none', color: 'var(--accent-coral)', cursor: 'pointer', padding: '2px 4px', fontSize: '0.8rem' }}>🗑️</button>
+                                  {a.status === 'completed' ? (
+                                    <button type="button" title="View Report" onClick={async (e) => {
+                                      e.stopPropagation();
+                                      if (!accessToken) return;
+                                      setBusy(true);
+                                      try {
+                                        const sessions = await getDoctorPatientSessions(accessToken, selectedPatientId);
+                                        const filtered = sessions.filter(s => s.exercise_name === a.exercise_name && s.status === 'completed');
+                                        setReportModal({ assignment: a, sessions: filtered, aiFeedback: {} });
+                                        const fb: { [k: string]: string } = {};
+                                        for (const s of filtered) { fb[s.id] = s.doctor_feedback || ''; }
+                                        setReportFeedbackInput(fb);
+                                      } catch (err) {
+                                        setError(err instanceof Error ? err.message : 'Failed to load sessions');
+                                      } finally { setBusy(false); }
+                                    }} style={{ background: 'none', border: '1px solid var(--border-subtle)', color: 'var(--accent-cyan)', cursor: 'pointer', padding: '2px 8px', fontSize: '0.7rem', borderRadius: '6px', fontWeight: 500 }}>View</button>
+                                  ) : (
+                                    <>
+                                      <button type="button" title="Edit" onClick={(e) => { e.stopPropagation(); setEditingAssignmentId(a.id); setEditForm({ target_sets: a.target_sets ?? 3, target_reps: a.target_reps, rest_interval_seconds: a.rest_interval_seconds ?? 60 }); }} style={{ background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', padding: '2px 4px', fontSize: '0.8rem' }}>✏️</button>
+                                      <button type="button" title="Delete" onClick={async (e) => {
+                                        e.stopPropagation();
+                                        if (!accessToken || !confirm(`Remove ${a.exercise_name}?`)) return;
+                                        setBusy(true);
+                                        try {
+                                          await deleteAssignment(accessToken, a.id);
+                                          const updated = await getDoctorPatientAssignments(accessToken, selectedPatientId);
+                                          setPatientAssignments(updated);
+                                          const stats = await getDoctorPatientAssignmentStats(accessToken);
+                                          setAssignmentStats(stats);
+                                          setSuccess('Assignment removed');
+                                          setTimeout(() => setSuccess(null), 3000);
+                                        } catch (err) {
+                                          setError(err instanceof Error ? err.message : 'Delete failed');
+                                        } finally { setBusy(false); }
+                                      }} style={{ background: 'none', border: 'none', color: 'var(--accent-coral)', cursor: 'pointer', padding: '2px 4px', fontSize: '0.8rem' }}>🗑️</button>
+                                    </>
+                                  )}
                                 </div>
                               </div>
                             );
@@ -504,6 +528,115 @@ export function DoctorDashboardPage() {
         </div>
       </div>
 
+      {/* Session Report Modal */}
+      {reportModal && (
+        <div onClick={() => setReportModal(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem' }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: 'var(--bg-secondary)', borderRadius: '16px', border: '1px solid var(--border-subtle)', maxWidth: '720px', width: '100%', maxHeight: '85vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            {/* Modal Header */}
+            <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.1rem' }}>{reportModal.assignment.exercise_name}</h3>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginTop: '2px' }}>{reportModal.sessions.length} completed session{reportModal.sessions.length !== 1 ? 's' : ''}</div>
+              </div>
+              <button onClick={() => setReportModal(null)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: '1.2rem', cursor: 'pointer' }}>✕</button>
+            </div>
+            {/* Modal Body */}
+            <div style={{ padding: '1.25rem 1.5rem', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {reportModal.sessions.length === 0 ? (
+                <div style={{ color: 'var(--text-dim)', fontSize: '0.85rem', fontStyle: 'italic', padding: '2rem 0', textAlign: 'center' }}>No completed sessions found for this exercise.</div>
+              ) : reportModal.sessions.map((s) => {
+                const avg = s.summary?.avg_final_score ?? 0;
+                const reps = s.summary?.reps ?? [];
+                const aiFb = reportModal.aiFeedback[s.id];
+                const isLoadingAi = loadingAi[s.id];
+                return (
+                  <div key={s.id} style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)', borderRadius: '10px', padding: '1rem' }}>
+                    {/* Session header */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                      <div>
+                        <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{new Date(s.started_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <span style={{ fontSize: '0.78rem', color: 'var(--text-dim)' }}>{s.summary?.total_reps ?? 0} reps</span>
+                        <span style={{ fontWeight: 700, fontSize: '1rem', color: scoreColor(avg) }}>{Math.round(avg)}</span>
+                      </div>
+                    </div>
+                    {/* Per-rep scores */}
+                    {reps.length > 0 && (
+                      <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+                        {reps.map((r: any, i: number) => {
+                          const rs = r.final_score ?? 0;
+                          return (
+                            <div key={i} title={`Rep ${r.rep}: ROM ${r.rom_score}, Stab ${r.stability_score}, Tempo ${r.tempo_score}`} style={{
+                              width: '32px', height: '32px', borderRadius: '6px',
+                              background: scoreColor(rs) + '20',
+                              border: `1px solid ${scoreColor(rs)}40`,
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              fontSize: '0.7rem', fontWeight: 600, color: scoreColor(rs),
+                            }}>{Math.round(rs)}</div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {/* AI Feedback */}
+                    <div style={{ marginBottom: '0.65rem' }}>
+                      {aiFb ? (
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', background: 'rgba(6,182,212,0.06)', padding: '0.6rem 0.75rem', borderRadius: '8px', borderLeft: '2px solid var(--accent-cyan)' }}>
+                          <div style={{ fontSize: '0.68rem', fontWeight: 600, color: 'var(--accent-cyan)', marginBottom: '4px' }}>AI Analysis</div>
+                          {aiFb}
+                        </div>
+                      ) : (
+                        <button type="button" disabled={isLoadingAi} onClick={async () => {
+                          if (!accessToken) return;
+                          setLoadingAi(prev => ({ ...prev, [s.id]: true }));
+                          try {
+                            const fb = await getDoctorSessionAiFeedback(accessToken, s.id);
+                            setReportModal(prev => prev ? { ...prev, aiFeedback: { ...prev.aiFeedback, [s.id]: fb } } : null);
+                          } catch {} finally {
+                            setLoadingAi(prev => ({ ...prev, [s.id]: false }));
+                          }
+                        }} style={{ fontSize: '0.75rem', color: 'var(--accent-cyan)', background: 'none', border: '1px solid var(--accent-cyan)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>
+                          {isLoadingAi ? 'Loading…' : 'Get AI analysis'}
+                        </button>
+                      )}
+                    </div>
+                    {/* Doctor Feedback */}
+                    <div>
+                      {s.doctor_feedback && (
+                        <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '0.5rem', padding: '0.5rem 0.65rem', background: 'rgba(52,211,153,0.06)', borderRadius: '6px', borderLeft: '2px solid var(--accent-emerald)' }}>
+                          <span style={{ fontSize: '0.68rem', fontWeight: 600, color: 'var(--accent-emerald)' }}>Your feedback: </span>{s.doctor_feedback}
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <input placeholder="Add feedback…" value={reportFeedbackInput[s.id] || ''} onChange={e => setReportFeedbackInput(prev => ({ ...prev, [s.id]: e.target.value }))} style={{ flex: 1, fontSize: '0.8rem', padding: '0.4rem 0.65rem' }} />
+                        <button type="button" disabled={busy || !(reportFeedbackInput[s.id] || '').trim()} onClick={async () => {
+                          if (!accessToken) return;
+                          const msg = (reportFeedbackInput[s.id] || '').trim();
+                          if (!msg) return;
+                          setBusy(true);
+                          try {
+                            await postSessionFeedback(accessToken, s.id, msg);
+                            // Update session in modal
+                            setReportModal(prev => {
+                              if (!prev) return null;
+                              return { ...prev, sessions: prev.sessions.map(ss => ss.id === s.id ? { ...ss, doctor_feedback: msg } : ss) };
+                            });
+                            setReportFeedbackInput(prev => ({ ...prev, [s.id]: '' }));
+                            setSuccess('Feedback saved!');
+                            setTimeout(() => setSuccess(null), 3000);
+                          } catch (err) {
+                            setError(err instanceof Error ? err.message : 'Failed to save feedback');
+                          } finally { setBusy(false); }
+                        }} className="btn-primary" style={{ padding: '0.4rem 0.75rem', fontSize: '0.78rem', borderRadius: '6px' }}>Send</button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

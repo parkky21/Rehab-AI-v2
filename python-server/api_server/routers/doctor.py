@@ -487,6 +487,51 @@ async def get_patient_sessions(
         
     return {"sessions": sessions}
 
+
+@router.get("/sessions/{session_id}/ai-feedback")
+async def get_session_ai_feedback_doctor(
+    session_id: str,
+    doctor: dict = Depends(require_role({"doctor"})),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+) -> dict:
+    sid = to_object_id(session_id, "session_id")
+    session = await db.sessions.find_one({"_id": sid})
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    await _assert_linked(db, doctor["id"], session["patient_id"])
+
+    # Check for cached feedback
+    cached = session.get("ai_feedback_cache")
+    if cached:
+        return {"feedback": cached}
+
+    summary = session.get("summary", {})
+    reps = summary.get("reps", [])
+    if not reps:
+        return {"feedback": "No per-rep data available for AI analysis."}
+
+    from api_server.routers.ai_feedback import _generate_ai_response
+    prompt = f"""You are an expert physical therapy AI. Analyze this exercise session for a doctor reviewing their patient.
+Exercise: '{session.get('exercise_name', 'Unknown')}'
+Total Reps: {summary.get('total_reps', 0)}, Avg Score: {summary.get('avg_final_score', 0)}/100
+ROM: {summary.get('avg_rom_score', 0)}/100, Stability: {summary.get('avg_stability_score', 0)}/100, Tempo: {summary.get('avg_tempo_score', 0)}/100
+
+Per-rep data:
+"""
+    for r in reps:
+        prompt += f"Rep {r.get('rep')}: Score={r.get('final_score')}, ROM={r.get('rom_score')}, Stability={r.get('stability_score')}, Tempo={r.get('tempo_score')}\n"
+
+    prompt += "\nProvide a concise 2-3 sentence clinical summary for the doctor. Highlight key trends and any areas of concern. Plain text only."
+
+    try:
+        ai_text = await _generate_ai_response(prompt)
+        # Cache it
+        await db.sessions.update_one({"_id": sid}, {"$set": {"ai_feedback_cache": ai_text}})
+        return {"feedback": ai_text}
+    except Exception:
+        return {"feedback": "AI feedback unavailable."}
+
 from pydantic import BaseModel
 class SessionFeedbackRequest(BaseModel):
     doctor_feedback: str

@@ -203,6 +203,14 @@ export async function getDoctorPatientSessions(accessToken: string, patientId: s
   return body.sessions;
 }
 
+export async function getDoctorSessionAiFeedback(accessToken: string, sessionId: string): Promise<string> {
+  const res = await fetch(`${API_BASE}/doctor/sessions/${sessionId}/ai-feedback`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const body = await parseJson<{ feedback: string }>(res);
+  return body.feedback;
+}
+
 export async function postSessionFeedback(
   accessToken: string,
   sessionId: string,
