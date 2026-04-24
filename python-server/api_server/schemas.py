@@ -45,6 +45,8 @@ class PatientAssignmentStats(BaseModel):
     in_progress_count: int
     completed_count: int
     total_count: int
+    risk_status: str = "On track"
+    risk_score: int = 100
 
 
 class PatientLinkRequest(BaseModel):
@@ -57,6 +59,9 @@ class AssignmentCreateRequest(BaseModel):
     patient_id: str
     exercise_name: str
     target_reps: int = Field(ge=1, le=200)
+    target_sets: int = Field(default=1, ge=1, le=20)
+    rest_interval_seconds: int = Field(default=60, ge=0, le=600)
+    protocol: str | None = Field(default=None, max_length=200)
     due_date: datetime | None = None
     notes: str | None = Field(default=None, max_length=600)
 
@@ -67,10 +72,26 @@ class AssignmentResponse(BaseModel):
     doctor_id: str
     exercise_name: str
     target_reps: int
+    target_sets: int = 1
+    rest_interval_seconds: int = 60
+    protocol: str | None = None
     due_date: datetime | None = None
     status: str
     notes: str | None = None
     created_at: datetime
+
+
+class PainLogRequest(BaseModel):
+    score: float = Field(ge=0, le=10)
+    location: str = Field(default="general", max_length=100)
+    notes: str | None = Field(default=None, max_length=500)
+
+
+class RoadmapMilestone(BaseModel):
+    title: str
+    description: str
+    target_week: int
+    status: Literal["done", "active", "pending"]
 
 
 class ExerciseInfo(BaseModel):
