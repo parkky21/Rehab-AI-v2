@@ -38,9 +38,7 @@ export function Shell() {
             onClick={() => { if (isCollapsed) setIsCollapsed(false); }}
           >
             <div className="brand-icon">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-              </svg>
+              <img src="/logo.png" alt="Rehab AI Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
             </div>
             <div className="brand-text">
               <span className="brand-name">Rehab AI</span>
