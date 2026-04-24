@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import {
   createAssignment,
+  deleteAssignment,
   getDoctorPatientAssignmentStats,
   getDoctorPatientAssignments,
   getDoctorPatients,
@@ -11,6 +12,7 @@ import {
   searchDoctorPatients,
   getDoctorPatientSessions,
   postSessionFeedback,
+  updateAssignment,
   getDoctorPatientRecommendations
 } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -59,6 +61,8 @@ export function DoctorDashboardPage() {
   const [patientSessions, setPatientSessions] = useState<SessionDoc[]>([]);
   const [feedbackInput, setFeedbackInput] = useState<{ [key: string]: string }>({});
   const [patientAssignments, setPatientAssignments] = useState<Assignment[]>([]);
+  const [editingAssignmentId, setEditingAssignmentId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<{ target_sets: number; target_reps: number; rest_interval_seconds: number }>({ target_sets: 3, target_reps: 10, rest_interval_seconds: 60 });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -345,6 +349,52 @@ export function DoctorDashboardPage() {
                           {patientAssignments.map((a) => {
                             const sc = a.status === 'completed' ? 'var(--accent-emerald)' : a.status === 'in_progress' ? 'var(--accent-cyan)' : 'var(--accent-amber)';
                             const sl = a.status === 'completed' ? 'Done' : a.status === 'in_progress' ? 'Active' : 'Pending';
+                            const isEditing = editingAssignmentId === a.id;
+
+                            if (isEditing) {
+                              return (
+                                <div key={a.id} style={{
+                                  padding: '0.65rem 0.75rem',
+                                  background: 'rgba(255,255,255,0.04)',
+                                  borderRadius: '8px',
+                                  borderLeft: '2px solid var(--accent-cyan)',
+                                }}>
+                                  <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>{a.exercise_name}</div>
+                                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.5rem' }}>
+                                    <label style={{ fontSize: '0.7rem', color: 'var(--text-dim)', display: 'flex', flexDirection: 'column', gap: '2px', flex: 1 }}>
+                                      Sets
+                                      <input type="number" min={1} max={10} value={editForm.target_sets} onChange={e => setEditForm(f => ({ ...f, target_sets: Number(e.target.value) }))} style={{ textAlign: 'center', padding: '0.3rem', fontSize: '0.82rem' }} />
+                                    </label>
+                                    <label style={{ fontSize: '0.7rem', color: 'var(--text-dim)', display: 'flex', flexDirection: 'column', gap: '2px', flex: 1 }}>
+                                      Reps
+                                      <input type="number" min={1} max={30} value={editForm.target_reps} onChange={e => setEditForm(f => ({ ...f, target_reps: Number(e.target.value) }))} style={{ textAlign: 'center', padding: '0.3rem', fontSize: '0.82rem' }} />
+                                    </label>
+                                    <label style={{ fontSize: '0.7rem', color: 'var(--text-dim)', display: 'flex', flexDirection: 'column', gap: '2px', flex: 1 }}>
+                                      Rest(s)
+                                      <input type="number" min={10} max={300} step={5} value={editForm.rest_interval_seconds} onChange={e => setEditForm(f => ({ ...f, rest_interval_seconds: Number(e.target.value) }))} style={{ textAlign: 'center', padding: '0.3rem', fontSize: '0.82rem' }} />
+                                    </label>
+                                  </div>
+                                  <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                                    <button type="button" onClick={() => setEditingAssignmentId(null)} style={{ padding: '0.3rem 0.75rem', fontSize: '0.75rem', background: 'transparent', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)', borderRadius: '6px' }}>Cancel</button>
+                                    <button type="button" disabled={busy} onClick={async () => {
+                                      if (!accessToken) return;
+                                      setBusy(true);
+                                      try {
+                                        await updateAssignment(accessToken, a.id, editForm);
+                                        const updated = await getDoctorPatientAssignments(accessToken, selectedPatientId);
+                                        setPatientAssignments(updated);
+                                        setEditingAssignmentId(null);
+                                        setSuccess('Assignment updated!');
+                                        setTimeout(() => setSuccess(null), 3000);
+                                      } catch (err) {
+                                        setError(err instanceof Error ? err.message : 'Update failed');
+                                      } finally { setBusy(false); }
+                                    }} className="btn-primary" style={{ padding: '0.3rem 0.75rem', fontSize: '0.75rem', borderRadius: '6px' }}>Save</button>
+                                  </div>
+                                </div>
+                              );
+                            }
+
                             return (
                               <div key={a.id} style={{
                                 display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -357,7 +407,26 @@ export function DoctorDashboardPage() {
                                   <div style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--text-primary)' }}>{a.exercise_name}</div>
                                   <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)', marginTop: '2px' }}>{a.target_sets ?? 3}×{a.target_reps} · {a.rest_interval_seconds ?? 60}s rest</div>
                                 </div>
-                                <span style={{ fontSize: '0.68rem', fontWeight: 600, color: sc, background: `${sc}15`, padding: '2px 8px', borderRadius: '8px' }}>{sl}</span>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                  <span style={{ fontSize: '0.68rem', fontWeight: 600, color: sc, background: `${sc}15`, padding: '2px 8px', borderRadius: '8px' }}>{sl}</span>
+                                  <button type="button" title="Edit" onClick={(e) => { e.stopPropagation(); setEditingAssignmentId(a.id); setEditForm({ target_sets: a.target_sets ?? 3, target_reps: a.target_reps, rest_interval_seconds: a.rest_interval_seconds ?? 60 }); }} style={{ background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', padding: '2px 4px', fontSize: '0.8rem' }}>✏️</button>
+                                  <button type="button" title="Delete" onClick={async (e) => {
+                                    e.stopPropagation();
+                                    if (!accessToken || !confirm(`Remove ${a.exercise_name}?`)) return;
+                                    setBusy(true);
+                                    try {
+                                      await deleteAssignment(accessToken, a.id);
+                                      const updated = await getDoctorPatientAssignments(accessToken, selectedPatientId);
+                                      setPatientAssignments(updated);
+                                      const stats = await getDoctorPatientAssignmentStats(accessToken);
+                                      setAssignmentStats(stats);
+                                      setSuccess('Assignment removed');
+                                      setTimeout(() => setSuccess(null), 3000);
+                                    } catch (err) {
+                                      setError(err instanceof Error ? err.message : 'Delete failed');
+                                    } finally { setBusy(false); }
+                                  }} style={{ background: 'none', border: 'none', color: 'var(--accent-coral)', cursor: 'pointer', padding: '2px 4px', fontSize: '0.8rem' }}>🗑️</button>
+                                </div>
                               </div>
                             );
                           })}

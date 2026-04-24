@@ -167,6 +167,34 @@ export async function getDoctorPatientAssignments(accessToken: string, patientId
   return body.assignments;
 }
 
+export async function updateAssignment(
+  accessToken: string,
+  assignmentId: string,
+  payload: { target_reps?: number; target_sets?: number; rest_interval_seconds?: number }
+): Promise<Assignment> {
+  const res = await fetch(`${API_BASE}/doctor/assignments/${assignmentId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  const body = await parseJson<{ assignment: Assignment }>(res);
+  return body.assignment;
+}
+
+export async function deleteAssignment(
+  accessToken: string,
+  assignmentId: string
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/doctor/assignments/${assignmentId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  await parseJson<Record<string, string>>(res);
+}
+
 export async function getDoctorPatientSessions(accessToken: string, patientId: string): Promise<SessionDoc[]> {
   const res = await fetch(`${API_BASE}/doctor/patients/${patientId}/sessions`, {
     headers: { Authorization: `Bearer ${accessToken}` },

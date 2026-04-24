@@ -254,6 +254,45 @@ async def get_patient_assignments(
     return {"assignments": assignments}
 
 
+@router.put("/assignments/{assignment_id}")
+async def update_assignment(
+    assignment_id: str,
+    payload: dict,
+    doctor: dict = Depends(require_role({"doctor"})),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+) -> dict:
+    aid = to_object_id(assignment_id, "assignment_id")
+    assignment = await db.exercise_assignments.find_one({"_id": aid, "doctor_id": ObjectId(doctor["id"])})
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+
+    update_fields: dict = {}
+    for field in ("target_reps", "target_sets", "rest_interval_seconds"):
+        if field in payload:
+            update_fields[field] = int(payload[field])
+    if not update_fields:
+        raise HTTPException(status_code=400, detail="No valid fields to update")
+
+    update_fields["updated_at"] = utc_now()
+    await db.exercise_assignments.update_one({"_id": aid}, {"$set": update_fields})
+    updated = await db.exercise_assignments.find_one({"_id": aid})
+    return {"assignment": serialize_doc(updated)}
+
+
+@router.delete("/assignments/{assignment_id}")
+async def delete_assignment(
+    assignment_id: str,
+    doctor: dict = Depends(require_role({"doctor"})),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+) -> dict:
+    aid = to_object_id(assignment_id, "assignment_id")
+    assignment = await db.exercise_assignments.find_one({"_id": aid, "doctor_id": ObjectId(doctor["id"])})
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+
+    await db.exercise_assignments.delete_one({"_id": aid})
+    return {"status": "deleted", "assignment_id": assignment_id}
+
 @router.get("/patients")
 async def get_linked_patients(
     doctor: dict = Depends(require_role({"doctor"})),
