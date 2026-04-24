@@ -3,6 +3,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   createAssignment,
   getDoctorPatientAssignmentStats,
+  getDoctorPatientAssignments,
   getDoctorPatients,
   getDoctorReport,
   getExercises,
@@ -14,6 +15,7 @@ import {
 } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import type {
+  Assignment,
   ExerciseInfo,
   PatientAssignmentStats,
   PatientSearchResult,
@@ -56,6 +58,7 @@ export function DoctorDashboardPage() {
   const [recommendations, setRecommendations] = useState<any[]>([]);
   const [patientSessions, setPatientSessions] = useState<SessionDoc[]>([]);
   const [feedbackInput, setFeedbackInput] = useState<{ [key: string]: string }>({});
+  const [patientAssignments, setPatientAssignments] = useState<Assignment[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -99,6 +102,17 @@ export function DoctorDashboardPage() {
     () => patients.find((p) => p.id === selectedPatientId) ?? null,
     [patients, selectedPatientId]
   );
+
+  // Fetch assignments when selected patient changes
+  useEffect(() => {
+    if (!accessToken || !selectedPatientId) {
+      setPatientAssignments([]);
+      return;
+    }
+    void getDoctorPatientAssignments(accessToken, selectedPatientId)
+      .then(setPatientAssignments)
+      .catch(() => setPatientAssignments([]));
+  }, [accessToken, selectedPatientId]);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -164,6 +178,12 @@ export function DoctorDashboardPage() {
       const stats = await getDoctorPatientAssignmentStats(accessToken, statsFilter);
       setAssignmentStats(stats);
       setSuccess("Assignment created!");
+      // Refresh patient assignments
+      if (selectedPatientId) {
+        getDoctorPatientAssignments(accessToken, selectedPatientId)
+          .then(setPatientAssignments)
+          .catch(() => {});
+      }
       setProtocol("");
       setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
@@ -379,6 +399,43 @@ export function DoctorDashboardPage() {
           </form>
         </div>
       </div>
+
+      {/* Assigned Exercises for selected patient */}
+      {selectedPatient && patientAssignments.length > 0 && (
+        <div className="glass-card" style={{ padding: '1.5rem', background: 'rgba(255,255,255,0.03)', border: 'none', borderRadius: '12px', marginTop: '1.5rem' }}>
+          <h2 style={{ fontSize: '1.15rem', margin: 0, fontWeight: 600, marginBottom: '1rem' }}>
+            Assigned to {selectedPatient.name}
+            <span style={{ fontSize: '0.8rem', fontWeight: 400, color: 'var(--text-dim)', marginLeft: '0.75rem' }}>{patientAssignments.length} exercise{patientAssignments.length !== 1 ? 's' : ''}</span>
+          </h2>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '0.75rem' }}>
+            {patientAssignments.map((a) => {
+              const statusColor = a.status === 'completed' ? 'var(--accent-emerald)' : a.status === 'in_progress' ? 'var(--accent-cyan)' : 'var(--accent-amber)';
+              const statusLabel = a.status === 'completed' ? 'Completed' : a.status === 'in_progress' ? 'In progress' : 'Assigned';
+              return (
+                <div key={a.id} style={{
+                  padding: '1rem',
+                  background: 'rgba(255,255,255,0.02)',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: '10px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.5rem',
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--text-primary)' }}>{a.exercise_name}</span>
+                    <span style={{ fontSize: '0.72rem', fontWeight: 600, color: statusColor, background: `${statusColor}18`, padding: '2px 10px', borderRadius: '10px' }}>{statusLabel}</span>
+                  </div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)', display: 'flex', gap: '1rem' }}>
+                    <span>{a.target_sets ?? 3} sets</span>
+                    <span>{a.target_reps} reps</span>
+                    <span>{a.rest_interval_seconds ?? 60}s rest</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

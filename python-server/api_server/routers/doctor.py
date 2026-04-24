@@ -238,6 +238,22 @@ async def get_patient_roadmap(
         return {"roadmap": serialize_doc(roadmap)}
     return {"roadmap": None}
 
+@router.get("/patients/{patient_id}/assignments")
+async def get_patient_assignments(
+    patient_id: str,
+    doctor: dict = Depends(require_role({"doctor"})),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+) -> dict:
+    pid = to_object_id(patient_id, "patient_id")
+    await _assert_linked(db, doctor["id"], pid)
+
+    cursor = db.exercise_assignments.find(
+        {"doctor_id": ObjectId(doctor["id"]), "patient_id": pid}
+    ).sort("created_at", -1)
+    assignments = [serialize_doc(doc) async for doc in cursor]
+    return {"assignments": assignments}
+
+
 @router.get("/patients")
 async def get_linked_patients(
     doctor: dict = Depends(require_role({"doctor"})),

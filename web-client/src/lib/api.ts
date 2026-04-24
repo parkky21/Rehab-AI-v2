@@ -159,6 +159,14 @@ export async function getDoctorReport(accessToken: string, patientId: string): P
   return parseJson<any>(res);
 }
 
+export async function getDoctorPatientAssignments(accessToken: string, patientId: string): Promise<Assignment[]> {
+  const res = await fetch(`${API_BASE}/doctor/patients/${patientId}/assignments`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const body = await parseJson<{ assignments: Assignment[] }>(res);
+  return body.assignments;
+}
+
 export async function getDoctorPatientSessions(accessToken: string, patientId: string): Promise<SessionDoc[]> {
   const res = await fetch(`${API_BASE}/doctor/patients/${patientId}/sessions`, {
     headers: { Authorization: `Bearer ${accessToken}` },
