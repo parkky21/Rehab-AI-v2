@@ -630,7 +630,7 @@ button:disabled {
 }
 
 .sidebar.collapsed .nav-link.active::before {
-  left: 0;
+  display: none;
 }
 
 .sidebar.collapsed .sidebar-user {
