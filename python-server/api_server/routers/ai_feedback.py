@@ -162,3 +162,46 @@ Speak directly to the patient in a warm and professional tone. Do not use markdo
     except Exception as e:
         print(f"Error generating AI insights: {e}")
         return {"insights": "We encountered an issue while generating your progress insights. Please try again later."}
+
+
+@router.get("/weekly-report")
+async def get_weekly_report(
+    patient: dict = Depends(require_role({"patient"})),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+) -> dict:
+    from datetime import timedelta
+    from api_server.utils import utc_now
+    
+    pid = ObjectId(patient["id"])
+    one_week_ago = utc_now() - timedelta(days=7)
+    
+    sessions = [s async for s in db.sessions.find({"patient_id": pid, "status": "completed", "started_at": {"$gte": one_week_ago}})]
+    pain_logs = [p async for p in db.pain_logs.find({"patient_id": pid, "created_at": {"$gte": one_week_ago}})]
+    
+    if not sessions:
+        return {"report": "Not enough activity this week to generate a report."}
+        
+    avg_score = sum([float((s.get("summary") or {}).get("avg_final_score", 0)) for s in sessions]) / len(sessions)
+    avg_pain = sum([float(p.get("score", 0)) for p in pain_logs]) / len(pain_logs) if pain_logs else "No pain reported"
+    
+    prompt = f"""
+You are an expert physical therapy AI. Generate a weekly performance audit for the patient based on their last 7 days of data.
+Stats this week:
+- Sessions Completed: {len(sessions)}
+- Average Form Score: {round(avg_score, 1)}/100
+- Average Pain Level: {avg_pain} (0-10 scale)
+
+Write a 2-paragraph professional, encouraging summary of their week. Discuss their form accuracy and pain trends. Do not use markdown formatting.
+"""
+    try:
+        report_text = await _generate_ai_response(prompt)
+        return {
+            "report_text": report_text,
+            "metrics": {
+                "sessions_completed": len(sessions),
+                "avg_form_score": round(avg_score, 1),
+                "avg_pain": avg_pain
+            }
+        }
+    except Exception as e:
+        return {"report": "Error generating report.", "error": str(e)}
