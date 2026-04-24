@@ -302,34 +302,69 @@ export function DoctorDashboardPage() {
               const isSelected = selectedPatientId === row.patient.id;
 
               return (
-                <div 
-                  key={row.patient.id} 
-                  onClick={() => setSelectedPatientId(row.patient.id)}
-                  style={{ 
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center', 
-                    padding: '1.2rem 0', borderBottom: '1px solid rgba(255,255,255,0.05)',
-                    cursor: 'pointer', opacity: isSelected ? 1 : 0.7
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <div style={{ width: '44px', height: '44px', borderRadius: '50%', background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, color: 'var(--bg-card)' }}>
-                      {initials}
-                    </div>
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--text-primary)' }}>{row.patient.name}</div>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '1.2rem' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', width: '60px' }}>
-                      <div style={{ color: sColor, fontSize: '0.9rem', fontWeight: 600, marginBottom: '6px' }}>{score}/100</div>
-                      <div style={{ width: '100%', height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', overflow: 'hidden' }}>
-                         <div style={{ width: `${score}%`, height: '100%', background: sColor }} />
+                <div key={row.patient.id}>
+                  <div 
+                    onClick={() => setSelectedPatientId(isSelected ? '' : row.patient.id)}
+                    style={{ 
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center', 
+                      padding: '1rem 0', borderBottom: isSelected ? 'none' : '1px solid rgba(255,255,255,0.05)',
+                      cursor: 'pointer', opacity: isSelected ? 1 : 0.7,
+                      transition: 'opacity 0.15s ease',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                      <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: isSelected ? 'var(--accent-emerald)' : 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, color: isSelected ? 'white' : 'var(--bg-card)', fontSize: '0.85rem', transition: 'all 0.15s ease' }}>
+                        {initials}
                       </div>
+                      <div style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--text-primary)' }}>{row.patient.name}</div>
                     </div>
-                    <div style={{ background: statusBg, color: statusTextColor, padding: '4px 12px', borderRadius: '16px', fontSize: '0.8rem', fontWeight: 600, width: '80px', textAlign: 'center' }}>
-                      {statusText}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', width: '55px' }}>
+                        <div style={{ color: sColor, fontSize: '0.85rem', fontWeight: 600, marginBottom: '4px' }}>{score}</div>
+                        <div style={{ width: '100%', height: '3px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', overflow: 'hidden' }}>
+                           <div style={{ width: `${score}%`, height: '100%', background: sColor }} />
+                        </div>
+                      </div>
+                      <div style={{ background: statusBg, color: statusTextColor, padding: '3px 10px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 600, minWidth: '70px', textAlign: 'center' }}>
+                        {statusText}
+                      </div>
+                      <span style={{ color: 'var(--text-dim)', fontSize: '0.7rem', transition: 'transform 0.2s', transform: isSelected ? 'rotate(180deg)' : 'rotate(0deg)' }}>▼</span>
                     </div>
                   </div>
+                  {/* Expandable assignments */}
+                  {isSelected && (
+                    <div style={{ 
+                      padding: '0.5rem 0 1rem 0', 
+                      borderBottom: '1px solid rgba(255,255,255,0.05)',
+                      animation: 'fadeSlideUp 0.2s ease-out',
+                    }}>
+                      {patientAssignments.length === 0 ? (
+                        <div style={{ padding: '0.5rem 0 0.25rem 3.25rem', fontSize: '0.82rem', color: 'var(--text-dim)', fontStyle: 'italic' }}>No exercises assigned yet</div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', paddingLeft: '3.25rem' }}>
+                          {patientAssignments.map((a) => {
+                            const sc = a.status === 'completed' ? 'var(--accent-emerald)' : a.status === 'in_progress' ? 'var(--accent-cyan)' : 'var(--accent-amber)';
+                            const sl = a.status === 'completed' ? 'Done' : a.status === 'in_progress' ? 'Active' : 'Pending';
+                            return (
+                              <div key={a.id} style={{
+                                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                padding: '0.55rem 0.75rem',
+                                background: 'rgba(255,255,255,0.02)',
+                                borderRadius: '8px',
+                                borderLeft: `2px solid ${sc}`,
+                              }}>
+                                <div>
+                                  <div style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--text-primary)' }}>{a.exercise_name}</div>
+                                  <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)', marginTop: '2px' }}>{a.target_sets ?? 3}×{a.target_reps} · {a.rest_interval_seconds ?? 60}s rest</div>
+                                </div>
+                                <span style={{ fontSize: '0.68rem', fontWeight: 600, color: sc, background: `${sc}15`, padding: '2px 8px', borderRadius: '8px' }}>{sl}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -400,42 +435,6 @@ export function DoctorDashboardPage() {
         </div>
       </div>
 
-      {/* Assigned Exercises for selected patient */}
-      {selectedPatient && patientAssignments.length > 0 && (
-        <div className="glass-card" style={{ padding: '1.5rem', background: 'rgba(255,255,255,0.03)', border: 'none', borderRadius: '12px', marginTop: '1.5rem' }}>
-          <h2 style={{ fontSize: '1.15rem', margin: 0, fontWeight: 600, marginBottom: '1rem' }}>
-            Assigned to {selectedPatient.name}
-            <span style={{ fontSize: '0.8rem', fontWeight: 400, color: 'var(--text-dim)', marginLeft: '0.75rem' }}>{patientAssignments.length} exercise{patientAssignments.length !== 1 ? 's' : ''}</span>
-          </h2>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '0.75rem' }}>
-            {patientAssignments.map((a) => {
-              const statusColor = a.status === 'completed' ? 'var(--accent-emerald)' : a.status === 'in_progress' ? 'var(--accent-cyan)' : 'var(--accent-amber)';
-              const statusLabel = a.status === 'completed' ? 'Completed' : a.status === 'in_progress' ? 'In progress' : 'Assigned';
-              return (
-                <div key={a.id} style={{
-                  padding: '1rem',
-                  background: 'rgba(255,255,255,0.02)',
-                  border: '1px solid var(--border-subtle)',
-                  borderRadius: '10px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '0.5rem',
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--text-primary)' }}>{a.exercise_name}</span>
-                    <span style={{ fontSize: '0.72rem', fontWeight: 600, color: statusColor, background: `${statusColor}18`, padding: '2px 10px', borderRadius: '10px' }}>{statusLabel}</span>
-                  </div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)', display: 'flex', gap: '1rem' }}>
-                    <span>{a.target_sets ?? 3} sets</span>
-                    <span>{a.target_reps} reps</span>
-                    <span>{a.rest_interval_seconds ?? 60}s rest</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
