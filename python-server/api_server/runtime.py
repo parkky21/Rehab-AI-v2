@@ -8,6 +8,7 @@ from pipeline import (
     create_default_feedback_engine,
     process_landmarks,
 )
+from pipeline.feature_engine import calculate_angle_3d
 
 
 @dataclass
@@ -65,6 +66,23 @@ class RealtimeSessionRuntime:
             "asymmetry_value": 0.0,
         }
         feedback_messages = self.feedback_engine.evaluate(processed, context)
+        
+        joint_angles = {}
+        try:
+            # 23=L_HIP, 25=L_KNEE, 27=L_ANKLE
+            l_knee = calculate_angle_3d(smoothed[23], smoothed[25], smoothed[27])
+            r_knee = calculate_angle_3d(smoothed[24], smoothed[26], smoothed[28])
+            # 11=L_SHOULDER, 23=L_HIP, 25=L_KNEE
+            l_hip = calculate_angle_3d(smoothed[11], smoothed[23], smoothed[25])
+            r_hip = calculate_angle_3d(smoothed[12], smoothed[24], smoothed[26])
+            
+            joint_angles = {
+                "Left Knee": round(l_knee, 1),
+                "Right Knee": round(r_knee, 1),
+                "Hip Flexion": round((l_hip + r_hip) / 2, 1)
+            }
+        except Exception:
+            pass
 
         return {
             "counter": counter,
@@ -73,6 +91,7 @@ class RealtimeSessionRuntime:
             "feedback_rules": feedback_messages,
             "sway": round(sway, 5),
             "rep_event": rep_event,
+            "joint_angles": joint_angles,
         }
 
     def finalize(self) -> dict:
