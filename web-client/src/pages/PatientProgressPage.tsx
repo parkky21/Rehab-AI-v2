@@ -265,8 +265,8 @@ export function PatientProgressPage() {
   const scoreDelta = recoveryData?.score_delta ?? 0;
   const painDelta = recoveryData?.pain_delta ?? 0;
 
-  const trendScores = recentScores.slice(-8);
-  const trendPains = recentPains.slice(-8);
+  const trendScores = recentScores.slice(-4);
+  const trendPains = recentPains.slice(-4);
 
   return (
     <div className="analytics-layout" id="analytics-page">
@@ -365,7 +365,7 @@ export function PatientProgressPage() {
             {/* Score Chart */}
             <div className="analytics-chart-card glass-card" style={{ background: "rgba(30,30,35,0.9)", border: "1px solid rgba(255,255,255,0.05)" }}>
               <div className="chart-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h3 style={{ fontSize: '1.2rem', color: 'var(--text-primary)' }}>Recovery trend — 8 weeks</h3>
+                <h3 style={{ fontSize: '1.2rem', color: 'var(--text-primary)' }}>Recovery trend — 4 weeks</h3>
                 <span style={{ background: 'rgba(16, 185, 129, 0.15)', color: 'var(--accent-emerald)', padding: '4px 12px', borderRadius: '16px', fontSize: '0.85rem', fontWeight: 600 }}>On track</span>
               </div>
               <div className="chart-container" style={{ height: "250px", marginTop: "1.5rem" }}>
@@ -395,7 +395,7 @@ export function PatientProgressPage() {
             {/* Pain Chart */}
             <div className="analytics-chart-card glass-card" style={{ background: "rgba(30,30,35,0.9)", border: "1px solid rgba(255,255,255,0.05)" }}>
               <div className="chart-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h3 style={{ fontSize: '1.2rem', color: 'var(--text-primary)' }}>Pain level trend</h3>
+                <h3 style={{ fontSize: '1.2rem', color: 'var(--text-primary)' }}>Pain level trend — 4 weeks</h3>
                 <span style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#FCD34D', padding: '4px 12px', borderRadius: '16px', fontSize: '0.85rem', fontWeight: 600 }}>Monitoring</span>
               </div>
               <div className="chart-container" style={{ height: "250px", marginTop: "1.5rem" }}>
