@@ -297,7 +297,6 @@ export function DoctorDashboardPage() {
                     </div>
                     <div>
                       <div style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--text-primary)' }}>{row.patient.name}</div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)' }}>Post-ACL • Week 6</div>
                     </div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '1.2rem' }}>
