@@ -97,6 +97,8 @@ async def _session_websocket_impl(websocket: WebSocket) -> None:
         "patient_id": assignment["patient_id"],
         "exercise_name": assignment["exercise_name"],
         "target_reps": assignment["target_reps"],
+        "target_sets": assignment.get("target_sets", 1),
+        "rest_interval_seconds": assignment.get("rest_interval_seconds", 60),
         "status": "in_progress",
         "started_at": utc_now(),
     }
@@ -109,6 +111,8 @@ async def _session_websocket_impl(websocket: WebSocket) -> None:
             "session_id": str(session_id),
             "exercise_name": assignment["exercise_name"],
             "target_reps": assignment["target_reps"],
+            "target_sets": assignment.get("target_sets", 1),
+            "rest_interval_seconds": assignment.get("rest_interval_seconds", 60),
         }
     )
 
@@ -161,6 +165,7 @@ async def _session_websocket_impl(websocket: WebSocket) -> None:
                     "feedback_rules": result["feedback_rules"],
                     "sway": result["sway"],
                     "rep_event": rep_event,
+                    "joint_angles": result.get("joint_angles", {}),
                 }
             )
     except WebSocketDisconnect:
