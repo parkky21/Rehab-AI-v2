@@ -1,10 +1,15 @@
 from bson import ObjectId
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from motor.motor_asyncio import AsyncIOMotorDatabase
+import os
+import json
+import openai
+from google import genai
 
 from api_server.database import get_db
 from api_server.deps import require_role
 from api_server.exercise_factory import list_exercises
+from api_server.risk_scorer import calculate_patient_risk
 from api_server.schemas import (
     AssignmentCreateRequest,
     AssignmentResponse,
@@ -39,6 +44,69 @@ def _trend_label(values: list[float]) -> str:
         return "declining"
     return "stable"
 
+
+async def _generate_ai_roadmap(protocol: str) -> str:
+    prompt = f"""
+You are an expert physical therapist. Create a 4-phase clinical roadmap for a patient recovering using the protocol: "{protocol}".
+Return the response strictly as a JSON list of objects. Each object must have these keys:
+- "title": A short phase title (e.g., "Week 1-2: Mobility")
+- "description": A 1-2 sentence description of the goal.
+- "target_week": The week number this phase starts (integer).
+- "status": "pending"
+Example:
+[
+  {{"title": "Phase 1: Protection", "description": "Reduce swelling.", "target_week": 1, "status": "pending"}},
+  ...
+]
+Do not return any markdown formatting, only the JSON array.
+"""
+    openai_key = os.getenv("OPENAI_API_KEY")
+    if openai_key:
+        try:
+            client = openai.AsyncOpenAI(api_key=openai_key)
+            response = await client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=600,
+                temperature=0.7
+            )
+            return response.choices[0].message.content.strip()
+        except Exception:
+            pass
+
+    gemini_key = os.getenv("GEMINI_API_KEY")
+    if gemini_key:
+        try:
+            client = genai.Client(api_key=gemini_key)
+            response = client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=prompt,
+            )
+            return response.text.strip()
+        except Exception:
+            pass
+
+    return "[]"
+
+async def _build_roadmap_bg_task(protocol: str, patient_id: ObjectId, doctor_id: ObjectId, db: AsyncIOMotorDatabase):
+    try:
+        res = await _generate_ai_roadmap(protocol)
+        res = res.replace("```json", "").replace("```", "").strip()
+        milestones = json.loads(res)
+        if isinstance(milestones, list) and len(milestones) > 0:
+            doc = {
+                "patient_id": patient_id,
+                "doctor_id": doctor_id,
+                "protocol": protocol,
+                "milestones": milestones,
+                "created_at": utc_now(),
+                "updated_at": utc_now()
+            }
+            # Remove old roadmap for this patient and add the new one
+            await db.clinical_roadmaps.delete_many({"patient_id": patient_id})
+            await db.clinical_roadmaps.insert_one(doc)
+    except Exception as e:
+        print(f"Error generating roadmap: {e}")
 
 async def _assert_linked(db: AsyncIOMotorDatabase, doctor_id: str, patient_id: ObjectId) -> None:
     linked = await db.doctor_patient_links.find_one(
@@ -105,6 +173,7 @@ async def link_patient(
 @router.post("/assignments", response_model=AssignmentResponse)
 async def create_assignment(
     payload: AssignmentCreateRequest,
+    background_tasks: BackgroundTasks,
     doctor: dict = Depends(require_role({"doctor"})),
     db: AsyncIOMotorDatabase = Depends(get_db),
 ) -> AssignmentResponse:
@@ -115,17 +184,28 @@ async def create_assignment(
 
     await _assert_linked(db, doctor["id"], patient_id)
 
+    doctor_doc = await db.users.find_one({"_id": ObjectId(doctor["id"])})
+    doctor_name = doctor_doc.get("name", "Doctor") if doctor_doc else "Doctor"
+
     assignment_doc = {
         "doctor_id": ObjectId(doctor["id"]),
+        "doctor_name": doctor_name,
         "patient_id": patient_id,
         "exercise_name": payload.exercise_name,
         "target_reps": payload.target_reps,
+        "target_sets": payload.target_sets,
+        "rest_interval_seconds": payload.rest_interval_seconds,
+        "protocol": payload.protocol,
         "due_date": payload.due_date,
         "notes": payload.notes,
         "status": "assigned",
         "created_at": utc_now(),
     }
     result = await db.exercise_assignments.insert_one(assignment_doc)
+    
+    if payload.protocol:
+        background_tasks.add_task(_build_roadmap_bg_task, payload.protocol, patient_id, ObjectId(doctor["id"]), db)
+
     assignment = serialize_doc({"_id": result.inserted_id, **assignment_doc})
     return AssignmentResponse(**assignment)
 
@@ -144,6 +224,19 @@ async def get_patient_sessions(
     sessions = [serialize_doc(doc) async for doc in cursor]
     return {"sessions": sessions}
 
+
+@router.get("/patients/{patient_id}/roadmap")
+async def get_patient_roadmap(
+    patient_id: str,
+    doctor: dict = Depends(require_role({"doctor"})),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+) -> dict:
+    pid = to_object_id(patient_id, "patient_id")
+    await _assert_linked(db, doctor["id"], pid)
+    roadmap = await db.clinical_roadmaps.find_one({"patient_id": pid}, sort=[("created_at", -1)])
+    if roadmap:
+        return {"roadmap": serialize_doc(roadmap)}
+    return {"roadmap": None}
 
 @router.get("/patients")
 async def get_linked_patients(
@@ -264,6 +357,7 @@ async def get_patient_assignment_stats(
     stats: list[PatientAssignmentStats] = []
     for patient_id, public_patient in patient_map.items():
         counts = counts_map[patient_id]
+        risk_data = await calculate_patient_risk(db, ObjectId(patient_id))
         stats.append(
             PatientAssignmentStats(
                 patient=UserProfile(**public_patient),
@@ -271,6 +365,8 @@ async def get_patient_assignment_stats(
                 in_progress_count=counts["in_progress"],
                 completed_count=counts["completed"],
                 total_count=counts["total"],
+                risk_status=risk_data["status"],
+                risk_score=risk_data["score"],
             )
         )
 
@@ -398,3 +494,66 @@ async def get_feedback(
     cursor = db.doctor_feedback.find({"patient_id": pid}).sort("created_at", -1).limit(50)
     feedback_list = [serialize_doc(doc) async for doc in cursor]
     return {"feedback": feedback_list}
+
+
+@router.get("/patients/{patient_id}/recommendations")
+async def get_patient_recommendations(
+    patient_id: str,
+    doctor: dict = Depends(require_role({"doctor"})),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+) -> dict:
+    pid = to_object_id(patient_id, "patient_id")
+    await _assert_linked(db, doctor["id"], pid)
+    
+    sessions = [s async for s in db.sessions.find({"patient_id": pid, "status": "completed"}).sort("started_at", -1).limit(5)]
+    if not sessions:
+        return {"recommendations": []}
+        
+    avg_score = sum([float((s.get("summary") or {}).get("avg_final_score", 0)) for s in sessions]) / len(sessions)
+    
+    prompt = f"""
+You are an expert physical therapy AI assisting a doctor. Review the patient's recent session data and generate exactly 3 actionable recommendations.
+Recent Stats:
+- 5-Session Average Score: {round(avg_score, 1)}/100
+- Latest Exercise: {sessions[0].get("exercise_name")}
+
+Return the response strictly as a JSON list of 3 objects. Each object must have these keys:
+- "title": Short title (e.g., "Increase Intensity", "Monitor Closely", "Patient Education")
+- "description": A 1-2 sentence detailed clinical recommendation.
+- "category": Either "intensity", "alert", or "behavior"
+Example:
+[
+  {{"title": "Increase Intensity", "description": "Patient is scoring consistently well. Progress to closed-chain exercises.", "category": "intensity"}},
+  ...
+]
+Do not return any markdown formatting, only the JSON array.
+"""
+    try:
+        openai_key = os.getenv("OPENAI_API_KEY")
+        res_text = ""
+        if openai_key:
+            client = openai.AsyncOpenAI(api_key=openai_key)
+            response = await client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=600,
+                temperature=0.7
+            )
+            res_text = response.choices[0].message.content.strip()
+        else:
+            gemini_key = os.getenv("GEMINI_API_KEY")
+            if gemini_key:
+                client = genai.Client(api_key=gemini_key)
+                response = client.models.generate_content(
+                    model='gemini-2.5-flash',
+                    contents=prompt,
+                )
+                res_text = response.text.strip()
+                
+        res_text = res_text.replace("```json", "").replace("```", "").strip()
+        import json
+        recommendations = json.loads(res_text)
+        return {"recommendations": recommendations}
+    except Exception as e:
+        print(f"Error generating recommendations: {e}")
+        return {"recommendations": []}
