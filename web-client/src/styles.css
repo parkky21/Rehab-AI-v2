@@ -2357,9 +2357,7 @@ button:disabled {
 
 /* ======================== DOCTOR DASHBOARD ======================== */
 .doctor-layout {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1.25rem;
+  display: block;
   animation: fadeSlideUp 0.4s ease-out;
 }
 

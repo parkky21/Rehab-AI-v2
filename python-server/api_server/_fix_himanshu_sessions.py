@@ -99,43 +99,27 @@ async def main():
 
     # ── Define 4-week session schedule ───────────────────────────
     # Each tuple: (days_ago, exercise, base_rom, base_stability, base_tempo)
-    # Scores improve steadily: ~55→90 over 4 weeks
+    # Target weekly averages: W1≈56, W2≈64, W3≈67, W4≈69
     schedule = [
-        # Week 1 (days 28-22): ROM ~55, Stab ~52, Tempo ~58
-        (28, "Squats",      55, 52, 58),
-        (27, "Heel Raises",  54, 50, 57),
-        (26, "Squats",      56, 53, 59),
-        (25, "Marching",     57, 54, 60),
-        (24, "Heel Raises",  58, 55, 61),
-        (23, "Squats",      59, 56, 62),
-        (22, "Marching",     60, 57, 63),
+        # Week 1 (days 28-22): target final ≈ 56
+        (28, "Squats",      40, 35, 40),
+        (27, "Heel Raises",  40, 45, 45),
 
-        # Week 2 (days 21-15): ROM ~65, Stab ~63, Tempo ~68
-        (21, "Squats",      63, 60, 65),
-        (20, "Heel Raises",  65, 62, 67),
-        (19, "Marching",     66, 63, 68),
-        (18, "Squats",      68, 65, 70),
-        (17, "Heel Raises",  69, 66, 71),
-        (16, "Squats",      70, 67, 72),
-        (15, "Marching",     71, 68, 73),
 
-        # Week 3 (days 14-8): ROM ~76, Stab ~74, Tempo ~79
-        (14, "Squats",      74, 72, 77),
-        (13, "Heel Raises",  76, 74, 78),
-        (12, "Marching",     77, 75, 79),
-        (11, "Squats",      78, 76, 80),
-        (10, "Heel Raises",  79, 77, 81),
-        (9,  "Squats",      80, 78, 82),
-        (8,  "Marching",     81, 79, 83),
+        # Week 2 (days 21-15): target final ≈ 64
+        (21, "Squats",      60, 55, 60),
+        (20, "Heel Raises",  60, 55, 60),
 
-        # Week 4 (days 7-1): ROM ~86, Stab ~84, Tempo ~89
-        (7,  "Squats",      84, 82, 87),
-        (6,  "Heel Raises",  85, 83, 88),
-        (5,  "Marching",     86, 84, 89),
-        (4,  "Squats",      87, 85, 90),
-        (3,  "Heel Raises",  88, 86, 91),
-        (2,  "Squats",      89, 87, 92),
-        (1,  "Marching",     90, 88, 93),
+
+        # Week 3 (days 14-8): target final ≈ 67
+        (14, "Squats",      62, 59, 62),
+        (13, "Heel Raises",  62, 59, 62),
+
+
+        # Week 4 (days 7-1): target final ≈ 69
+        (7,  "Squats",      65, 62, 65),
+        (6,  "Heel Raises",  69, 67, 69),
+
     ]
 
     print(f"\n📊 Seeding {len(schedule)} sessions over 4 weeks...")

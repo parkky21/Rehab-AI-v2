@@ -215,7 +215,7 @@ export function DoctorDashboardPage() {
   const recentScores: number[] = report?.recent_scores ?? [];
 
   return (
-    <div className="doctor-layout" style={{ maxWidth: '1200px', margin: '0 auto', padding: '1rem' }}>
+    <div className="doctor-layout" style={{ maxWidth: '1400px', margin: '0 auto', padding: '1.5rem 2rem' }}>
       {error && <p className="error-text">{error}</p>}
       {success && (
         <p style={{
@@ -240,14 +240,23 @@ export function DoctorDashboardPage() {
           <div style={{ color: 'var(--text-dim)', fontSize: '0.8rem', marginTop: '0.5rem' }}>this month</div>
         </div>
         <div className="glass-card" style={{ padding: '1.25rem', background: 'rgba(255,255,255,0.03)', border: 'none', borderRadius: '12px' }}>
-          <div style={{ color: 'var(--text-primary)', fontSize: '0.9rem', marginBottom: '0.5rem' }}>AI reports generated</div>
-          <div style={{ fontSize: '2.5rem', fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1 }}>31</div>
-          <div style={{ color: 'var(--text-dim)', fontSize: '0.8rem', marginTop: '0.5rem' }}>avg score: 74/100</div>
+          <div style={{ color: 'var(--text-primary)', fontSize: '0.9rem', marginBottom: '0.5rem' }}>Avg recovery score</div>
+          {(() => {
+            const scores = assignmentStats.filter(s => (s.risk_score ?? 0) > 0).map(s => s.risk_score!);
+            const avg = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+            const color = avg >= 85 ? 'var(--accent-emerald)' : avg >= 70 ? 'var(--accent-cyan)' : avg >= 50 ? 'var(--accent-amber)' : 'var(--accent-coral)';
+            return (
+              <>
+                <div style={{ fontSize: '2.5rem', fontWeight: 600, color, lineHeight: 1 }}>{avg}<span style={{ fontSize: '1.2rem', color: 'var(--text-dim)' }}>/100</span></div>
+                <div style={{ color: 'var(--text-dim)', fontSize: '0.8rem', marginTop: '0.5rem' }}>{scores.length} patient{scores.length !== 1 ? 's' : ''} tracked</div>
+              </>
+            );
+          })()}
         </div>
       </div>
 
       {/* Main Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '1.5rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(380px, 1.3fr)', gap: '1.5rem' }}>
         {/* Left Col: Patient List */}
         <div className="glass-card" style={{ padding: '1.5rem', background: 'rgba(255,255,255,0.03)', border: 'none', borderRadius: '12px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
@@ -309,71 +318,65 @@ export function DoctorDashboardPage() {
         </div>
 
         {/* Right Col: Assign exercise program */}
-        <div className="glass-card" style={{ padding: '1.5rem', background: 'rgba(255,255,255,0.03)', border: 'none', borderRadius: '12px' }}>
-          <h2 style={{ fontSize: '1.15rem', margin: 0, fontWeight: 600, marginBottom: '1.5rem' }}>Assign exercise program</h2>
-          <form onSubmit={onCreateAssignment}>
-            <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr', alignItems: 'center', marginBottom: '1rem', gap: '1rem' }}>
-               <label style={{ color: 'var(--text-primary)', fontSize: '0.95rem' }}>Patient</label>
-               <select value={selectedPatientId} onChange={(e) => setSelectedPatientId(e.target.value)} style={{ padding: '0.85rem', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: 'white', fontSize: '0.95rem', appearance: 'none', cursor: 'pointer' }}>
-                 {patients.length === 0 && <option value="">No patients linked</option>}
-                 {patients.map(p => <option key={p.id} value={p.id}>{p.name} — ACL</option>)}
-               </select>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr', alignItems: 'center', marginBottom: '2rem', gap: '1rem' }}>
-               <label style={{ color: 'var(--text-primary)', fontSize: '0.95rem' }}>Protocol</label>
-               <select value={protocol} onChange={(e) => setProtocol(e.target.value)} style={{ padding: '0.85rem', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: 'white', fontSize: '0.95rem', appearance: 'none', cursor: 'pointer' }}>
-                 <option value="Post-ACL Phase 2">Post-ACL Phase 2</option>
-                 <option value="Post-ACL Phase 3">Post-ACL Phase 3</option>
-               </select>
+        <div className="glass-card" style={{ padding: '1.5rem', background: 'rgba(255,255,255,0.03)', border: 'none', borderRadius: '12px', display: 'flex', flexDirection: 'column' }}>
+          <h2 style={{ fontSize: '1.15rem', margin: 0, fontWeight: 600, marginBottom: '1.25rem' }}>Assign exercise program</h2>
+          <form onSubmit={onCreateAssignment} style={{ display: 'flex', flexDirection: 'column', flex: 1, gap: 0 }}>
+            {/* Patient selector */}
+            <div style={{ marginBottom: '1.25rem' }}>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.4rem' }}>Patient</div>
+              <select value={selectedPatientId} onChange={(e) => setSelectedPatientId(e.target.value)} style={{ width: '100%' }}>
+                {patients.length === 0 && <option value="">No patients linked</option>}
+                {patients.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
             </div>
 
-            <div style={{ marginBottom: '1rem', color: 'var(--text-primary)', fontSize: '0.95rem', fontWeight: 500 }}>Exercise selection</div>
-            
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '2rem' }}>
-               {exercises.map(ex => {
-                 const isActive = exerciseName === ex.name;
-                 const isAdvanced = ex.name.includes("Balance");
-                 const isModerate = ex.name.includes("Raise");
-                 const difficultyLabel = isAdvanced ? "Advanced" : isModerate ? "Moderate" : "Beginner";
-                 const difficultyColor = isAdvanced ? "#b45309" : isModerate ? "#1d4ed8" : "#047857";
-                 const difficultyBg = "white";
-                 
-                 return (
-                   <div 
-                     key={ex.name} 
-                     onClick={() => setExerciseName(ex.name)}
-                     style={{ 
-                       padding: '1.25rem', 
-                       background: isActive ? 'rgba(16, 185, 129, 0.05)' : 'rgba(255,255,255,0.02)', 
-                       border: `1px solid ${isActive ? 'var(--accent-emerald)' : 'rgba(255,255,255,0.05)'}`, 
-                       borderRadius: '12px',
-                       display: 'flex',
-                       alignItems: 'center',
-                       justifyContent: 'space-between',
-                       cursor: 'pointer',
-                       transition: 'all 0.2s ease'
-                     }}>
-                     <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
-                       <div style={{ width: '48px', height: '48px', background: 'white', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                         <span style={{ fontSize: '1.5rem' }}>{ex.name.includes("Quad") ? "🦵" : ex.name.includes("Raise") ? "🏋️" : "⚖️"}</span>
-                       </div>
-                       <div>
-                         <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '1.05rem', marginBottom: '4px' }}>{ex.name}</div>
-                         <div style={{ fontSize: '0.85rem', color: 'var(--text-dim)' }}>{targetSets} sets • {targetReps} reps • {restInterval}s rest</div>
-                       </div>
-                     </div>
-                     <div style={{ background: difficultyBg, padding: '4px 12px', borderRadius: '16px', fontSize: '0.8rem', fontWeight: 600, color: difficultyColor }}>
-                       {difficultyLabel}
-                     </div>
-                   </div>
-                 )
-               })}
+            {/* Exercise list — scrollable */}
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.6rem' }}>Select exercise</div>
+            <div style={{ maxHeight: '240px', overflowY: 'auto', marginBottom: '1.25rem', display: 'flex', flexDirection: 'column', gap: '6px', paddingRight: '4px' }}>
+              {exercises.map(ex => {
+                const isActive = exerciseName === ex.name;
+                return (
+                  <div
+                    key={ex.name}
+                    onClick={() => setExerciseName(ex.name)}
+                    style={{
+                      padding: '0.75rem 0.9rem',
+                      background: isActive ? 'rgba(52, 211, 153, 0.06)' : 'rgba(255,255,255,0.02)',
+                      borderLeft: `3px solid ${isActive ? 'var(--accent-emerald)' : 'transparent'}`,
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    <span style={{ fontWeight: isActive ? 600 : 400, fontSize: '0.92rem', color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)' }}>{ex.name}</span>
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)', background: 'rgba(255,255,255,0.04)', padding: '2px 8px', borderRadius: '4px' }}>{ex.target_rom}°</span>
+                  </div>
+                );
+              })}
             </div>
 
-            <div style={{ display: 'flex', gap: '1rem' }}>
-              <button disabled={busy || !selectedPatientId} type="submit" style={{ flex: 1, padding: '1rem', background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '8px', color: 'white', fontWeight: 600, fontSize: '1rem', cursor: 'pointer', transition: 'background 0.2s' }}>Assign program</button>
-              <button type="button" style={{ flex: 1, padding: '1rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '8px', color: 'white', fontWeight: 600, fontSize: '1rem', cursor: 'pointer' }}>Preview AI guide</button>
+            {/* Customization — compact row */}
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem' }}>Parameters</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.6rem', marginBottom: '1.25rem' }}>
+              {[
+                { label: 'Sets', value: targetSets, setter: setTargetSets, min: 1, max: 10, step: 1 },
+                { label: 'Reps', value: targetReps, setter: setTargetReps, min: 1, max: 30, step: 1 },
+                { label: 'Rest (s)', value: restInterval, setter: setRestInterval, min: 10, max: 300, step: 5 },
+              ].map(({ label, value, setter, min, max, step }) => (
+                <div key={label} style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '8px', padding: '0.6rem', textAlign: 'center' }}>
+                  <div style={{ color: 'var(--text-dim)', fontSize: '0.7rem', marginBottom: '0.35rem' }}>{label}</div>
+                  <input type="number" min={min} max={max} step={step} value={value} onChange={e => setter(Number(e.target.value))} style={{ textAlign: 'center', width: '100%', padding: '0.45rem', fontSize: '0.95rem', fontWeight: 600 }} />
+                </div>
+              ))}
             </div>
+
+            {/* Assign button */}
+            <button disabled={busy || !selectedPatientId} type="submit" className="btn-primary" style={{ width: '100%', padding: '0.85rem', fontSize: '0.95rem', marginTop: 'auto' }}>
+              {busy ? 'Assigning…' : `Assign ${exerciseName}`}
+            </button>
           </form>
         </div>
       </div>
