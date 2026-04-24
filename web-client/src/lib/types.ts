@@ -62,6 +62,8 @@ export type SessionSummary = {
 export type SessionDoc = {
   id: string;
   exercise_name: string;
+  target_reps?: number;
+  target_sets?: number;
   status: string;
   started_at: string;
   ended_at?: string;

@@ -85,9 +85,9 @@ Here is the per-rep performance data:
             prompt += f"Rep {r.get('rep')}: Score={r.get('final_score')}, ROM={r.get('rom_score')}, Stability={r.get('stability_score')}, Tempo={r.get('tempo_score')}, Feedback from system={r.get('feedback', [])}\n"
             
         prompt += """
-Based on this data, provide a highly personalized, encouraging, and actionable 2-3 paragraph feedback summary for the patient. 
-Focus on specific trends (e.g., if their stability decreased in later reps due to fatigue, or if their tempo was too fast). 
-Speak directly to the patient in a professional, warm, and clear tone. Do not use markdown formatting like asterisks or bold text, just plain text with paragraphs.
+Based on this data, provide a highly personalized, encouraging, and extremely short and concise feedback summary (maximum 2-3 sentences) for the patient. 
+Focus on one key trend (e.g., if their stability decreased in later reps due to fatigue, or if their tempo was too fast). 
+Speak directly to the patient in a professional, warm, and clear tone. Do not use markdown formatting like asterisks or bold text, just plain text.
 """
         
         ai_response = await _generate_ai_response(prompt)
