@@ -74,6 +74,7 @@ export function PatientExercisePage() {
 
   const gestureTimerRef = useRef<number | null>(null);
   const gestureCooldownRef = useRef<number>(0);
+  const isRestingRef = useRef(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -127,6 +128,9 @@ export function PatientExercisePage() {
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [running, sessionStartTime]);
+
+  // Keep ref in sync with state so the render loop can read it
+  useEffect(() => { isRestingRef.current = isResting; }, [isResting]);
 
   // Rest Timer & Set progression
   useEffect(() => {
@@ -476,7 +480,7 @@ export function PatientExercisePage() {
           }
         }
 
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
+        if (wsRef.current?.readyState === WebSocket.OPEN && !isRestingRef.current) {
           wsRef.current.send(
             JSON.stringify({
               type: "landmark_frame",
